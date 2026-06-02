@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyw~
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Database / data
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+*.swp
+*.swo
+
+# Build & packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+$RECYCLE.BIN/
+
+# Logs
+*.log
+logs/

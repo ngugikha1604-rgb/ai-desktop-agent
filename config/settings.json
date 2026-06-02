@@ -1,0 +1,14 @@
+{
+  "llm_provider": "gemini",
+  "model": "gemini-2.5-flash",
+  "planner_prompt": "prompts/planner_prompt.txt",
+  "agent_prompt": "prompts/agent_prompt.txt",
+  "database": "data/memory.db",
+  "ui": {
+    "hotkey_modifiers": "ctrl+alt",
+    "hotkey_key": "j",
+    "command_bar_width": 560,
+    "command_bar_margin_right": 24,
+    "command_bar_margin_bottom": 24
+  }
+}
