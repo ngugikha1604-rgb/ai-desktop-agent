@@ -1,4 +1,6 @@
 from tools.active_window import get_active_window
+from tools.browser import open_url, search_web
+from tools.browser_control import browser_action
 from tools.clipboard import get_clipboard, set_clipboard
 from tools.kill_process import kill_process
 from tools.notification import send_notification
@@ -31,6 +33,10 @@ TOOL_REGISTRY: dict[str, callable] = {
     # Screen & notification
     "take_screenshot": take_screenshot,
     "send_notification": send_notification,
+    # Browser — Phase 10/11
+    "open_url": open_url,
+    "search_web": search_web,
+    "browser_action": browser_action,
 }
 
 __all__ = ["TOOL_REGISTRY"]

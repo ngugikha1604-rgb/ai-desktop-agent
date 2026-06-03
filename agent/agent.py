@@ -1,45 +1,156 @@
-import json
+"""Agent — pipeline điều phối Planner → Executor → ResponseFormatter."""
+from __future__ import annotations
+
+import re
 
 from agent.config import load_prompt_file, load_settings
 from agent.executor import Executor
-from agent.llm import GeminiClient
+from agent.llm import (
+    OllamaClient,
+    OllamaConnectionError,
+    OllamaModelNotFoundError,
+    OllamaServerError,
+    get_response_llm,
+)
+from agent.logger import get_logger
 from agent.memory import Memory
+from agent.memory_extractor import MemoryExtractor
 from agent.planner import Planner
+
+log = get_logger(__name__)
+
+_REMEMBER_PATTERNS = [
+    r"bạn (còn )?nhớ gì (về tôi|về mình)",
+    r"nhớ gì về tôi",
+    r"bạn biết gì về tôi",
+    r"bạn đang nhớ gì",
+]
+_FORGET_PATTERNS = [
+    r"quên đi rằng\s+(.+)",
+    r"xoá nhớ\s+(.+)",
+    r"xóa nhớ\s+(.+)",
+    r"hãy quên\s+(.+)",
+    r"forget\s+(.+)",
+]
 
 
 class Agent:
     def __init__(self) -> None:
-        self.planner = Planner()
-        self.executor = Executor()
         self.memory = Memory()
-        self._llm: GeminiClient | None = None
+        self.planner = Planner()
+        self.planner.set_memory(self.memory)
+        self.executor = Executor()
+        self.extractor = MemoryExtractor(self.memory)
+        self._llm: OllamaClient | None = None
 
-    def _get_llm(self) -> GeminiClient:
+        # Callback để CommandBar hiển thị thông báo "Đã ghi nhớ"
+        # Được gán từ app.py: agent.on_memory_saved = ...
+        self.on_memory_saved: callable | None = None
+
+    def _get_llm(self) -> OllamaClient:
         if self._llm is None:
-            self._llm = GeminiClient()
+            self._llm = get_response_llm()
         return self._llm
 
+    # ── Public API ────────────────────────────────────────────────────
+
     def run(self, user_input: str) -> str:
-        print(f"\n[Agent] Khởi chạy xử lý yêu cầu của người dùng: '{user_input}'")
+        log.debug("[Agent] Yêu cầu: %r", user_input)
         try:
             self.memory.save_message("user", user_input)
+
+            # Xử lý đặc biệt: truy vấn / xoá bộ nhớ
+            special = self._handle_special_queries(user_input)
+            if special is not None:
+                self.memory.save_message("assistant", special)
+                return special
 
             history = self.memory.get_recent_history(limit=10)
             plan = self.planner.plan(user_input, history)
 
             if self._is_fallback_plan(plan):
-                print("[Agent] Planner trả về fallback, chuyển sang conversational response.")
                 response = self._conversational_response(user_input)
             else:
                 results = self.executor.execute(plan)
                 response = self._format_response(user_input, results)
 
             self.memory.save_message("assistant", response)
-            print(f"[Agent] Xử lý hoàn tất thành công!")
+
+            # Kích hoạt trích xuất bộ nhớ bất đồng bộ
+            self.extractor.extract_async(
+                user_input,
+                response,
+                on_saved=self._on_memory_saved_callback,
+            )
+
             return response
+
+        except OllamaConnectionError:
+            log.warning("[Agent] Ollama không kết nối.")
+            return (
+                "Ollama chưa chạy. Hãy mở terminal và chạy lệnh:\n"
+                "`ollama serve`"
+            )
+
+        except OllamaModelNotFoundError as e:
+            log.warning("[Agent] Model không tồn tại: %s", e.model)
+            return (
+                f"Model '{e.model}' chưa được tải về. "
+                f"Hãy mở terminal và chạy:\n"
+                f"`ollama pull {e.model}`"
+            )
+
+        except OllamaServerError:
+            log.warning("[Agent] Ollama server error.")
+            return "Ollama gặp lỗi khi xử lý. Vui lòng thử lại sau giây lát."
+
         except Exception as e:
-            print(f"[Agent] LỖI: Gặp lỗi trong quá trình xử lý: {e}")
-            raise e
+            log.warning("[Agent] Lỗi không xác định: %s", e)
+            raise
+
+    # ── Special query handlers ─────────────────────────────────────────
+
+    def _handle_special_queries(self, user_input: str) -> str | None:
+        text = user_input.lower().strip()
+
+        for pattern in _REMEMBER_PATTERNS:
+            if re.search(pattern, text):
+                return self._list_memories()
+
+        for pattern in _FORGET_PATTERNS:
+            m = re.search(pattern, text)
+            if m:
+                return self._forget_memory(m.group(1).strip())
+
+        return None
+
+    def _list_memories(self) -> str:
+        memories = self.memory.get_all_long_term_memories()
+        if not memories:
+            return "Tôi chưa lưu thông tin gì về bạn."
+        groups: dict[str, list[dict]] = {}
+        for m in memories:
+            groups.setdefault(m["type"], []).append(m)
+        type_labels = {
+            "path": "📁 Đường dẫn",
+            "preference": "⭐ Ưa thích",
+            "schedule": "📅 Lịch trình",
+            "personal": "👤 Cá nhân",
+        }
+        lines = ["Đây là những gì tôi nhớ về bạn:\n"]
+        for t, items in groups.items():
+            lines.append(f"{type_labels.get(t, t.upper())}:")
+            for item in items:
+                lines.append(f"  • {item['key']}: {item['value']}")
+        return "\n".join(lines)
+
+    def _forget_memory(self, search_term: str) -> str:
+        key = self.memory.deactivate_long_term_memory(search_term)
+        if key:
+            return f"Đã xoá bộ nhớ: {key}"
+        return f"Không tìm thấy bộ nhớ liên quan đến: {search_term}"
+
+    # ── Response helpers ───────────────────────────────────────────────
 
     def _is_fallback_plan(self, plan: list[dict]) -> bool:
         if not plan:
@@ -54,25 +165,49 @@ class Agent:
         try:
             settings = load_settings()
             system_prompt = load_prompt_file(settings["agent_prompt"])
+            system_prompt = self._enrich_system_prompt(system_prompt)
             return self._get_llm().generate(system_prompt, user_input)
+        except (OllamaConnectionError, OllamaModelNotFoundError, OllamaServerError):
+            raise
         except Exception as e:
-            print(f"[Agent] _conversational_response lỗi: {e}")
+            log.warning("[Agent] _conversational_response lỗi: %s", e)
             return f"Xin lỗi, tôi gặp lỗi khi xử lý: {e}"
 
     def _format_response(self, user_input: str, results: list[dict]) -> str:
-        # Tóm tắt kết quả thô từ các tool
         raw_lines = [r.get("message", "") for r in results if r.get("message")]
         raw_summary = "\n".join(raw_lines) if raw_lines else "(Không có kết quả)"
-
         try:
             settings = load_settings()
             system_prompt = load_prompt_file(settings["agent_prompt"])
+            system_prompt = self._enrich_system_prompt(system_prompt)
             user_message = (
                 f"User request: {user_input}\n\n"
                 f"Tool results:\n{raw_summary}\n\n"
                 f"Please summarize the results naturally in Vietnamese."
             )
             return self._get_llm().generate(system_prompt, user_message)
+        except (OllamaConnectionError, OllamaModelNotFoundError, OllamaServerError):
+            raise
         except Exception as e:
-            print(f"[Agent] _format_response fallback do lỗi LLM: {e}")
+            log.warning("[Agent] _format_response fallback: %s", e)
             return raw_summary
+
+    def _enrich_system_prompt(self, prompt: str) -> str:
+        """Thêm tên người dùng vào system prompt nếu đã biết."""
+        try:
+            profile = self.memory.get_user_profile()
+            name = profile.get("display_name", "")
+            if name:
+                prompt = f"Tên người dùng là: {name}\n\n" + prompt
+        except Exception:
+            pass
+        return prompt
+
+    # ── Callback ───────────────────────────────────────────────────────
+
+    def _on_memory_saved_callback(self, saved_items: list[dict]) -> None:
+        if self.on_memory_saved:
+            try:
+                self.on_memory_saved(saved_items)
+            except Exception:
+                pass

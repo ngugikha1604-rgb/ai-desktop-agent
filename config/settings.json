@@ -1,14 +1,19 @@
 {
-  "llm_provider": "gemini",
-  "model": "gemini-2.5-flash",
+  "llm_provider": "ollama",
+  "planner_model": "qwen2.5:3b",
+  "response_model": "qwen2.5:0.5b",
+  "ollama_base_url": "http://localhost:11434",
   "planner_prompt": "prompts/planner_prompt.txt",
   "agent_prompt": "prompts/agent_prompt.txt",
   "database": "data/memory.db",
+  "preferred_microphone": null,
+  "stt_model": "base",
   "ui": {
     "hotkey_modifiers": "ctrl+alt",
     "hotkey_key": "j",
-    "command_bar_width": 560,
-    "command_bar_margin_right": 24,
-    "command_bar_margin_bottom": 24
+    "hotkey_voice_key": "v",
+    "command_bar_width": 460,
+    "command_bar_margin_right": 20,
+    "command_bar_margin_bottom": 20
   }
 }

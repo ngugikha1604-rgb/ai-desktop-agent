@@ -33,11 +33,18 @@ Available tools:
 - take_screenshot: {"save_path": "C:\\Users\\Desktop\\shot.png" (optional, default = Desktop)}
 - send_notification: {"title": "Tiêu đề", "message": "Nội dung thông báo"}
 
+## Browser — Phase 10/11
+- open_url: {"url": "https://example.com"} — mở URL trong trình duyệt mặc định; tự thêm https:// nếu thiếu
+- search_web: {"query": "từ khoá tìm kiếm"} — tìm kiếm Google (hỗ trợ tiếng Việt, Unicode)
+- browser_action: {"action": "new_tab"|"close_tab"|"reload"|"back"|"forward"} — điều khiển tab trình duyệt
+
 Rules:
 - Output a valid JSON array ONLY, nothing else. Wrap in ```json ... ``` if needed.
 - Use only tools from the list above.
 - If the request is conversational (greeting, question with no desktop action) return: []
 - Chain steps logically: e.g. search then read, open then notify.
+- For search requests ("tìm kiếm X", "search X"), use search_web with the keyword, NOT open_url.
+- For browser tab control ("mở tab mới", "đóng tab", "tải lại", "quay lại", "tiến tới"), use browser_action.
 
 Examples:
 
@@ -70,4 +77,29 @@ User: "Tạo file note.txt trên Desktop với nội dung: cần mua sữa"
 User: "Thông báo cho tôi rằng build xong"
 [
   {"task": "notify_done", "tool": "send_notification", "args": {"title": "Build hoàn tất", "message": "Quá trình build đã hoàn thành thành công."}}
+]
+
+User: "Tìm kiếm học máy là gì"
+[
+  {"task": "search_google", "tool": "search_web", "args": {"query": "học máy là gì"}}
+]
+
+User: "Mở trang github.com"
+[
+  {"task": "open_github", "tool": "open_url", "args": {"url": "github.com"}}
+]
+
+User: "Mở tab mới"
+[
+  {"task": "new_tab", "tool": "browser_action", "args": {"action": "new_tab"}}
+]
+
+User: "Đóng tab này"
+[
+  {"task": "close_tab", "tool": "browser_action", "args": {"action": "close_tab"}}
+]
+
+User: "Tải lại trang"
+[
+  {"task": "reload_page", "tool": "browser_action", "args": {"action": "reload"}}
 ]
