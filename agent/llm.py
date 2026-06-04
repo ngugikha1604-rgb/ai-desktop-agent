@@ -55,6 +55,7 @@ class OllamaClient:
         user_message: str,
         num_predict: int = 512,
         caveman: bool = False,
+        json_mode: bool = False,
     ) -> str:
         log.debug("[Ollama:%s] Đang xử lý...", self.model)
 
@@ -65,7 +66,7 @@ class OllamaClient:
         s = load_settings()
         num_ctx = s.get("num_ctx", 4096)
 
-        payload = json.dumps({
+        payload_dict = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt.strip()},
@@ -77,7 +78,11 @@ class OllamaClient:
                 "num_predict": num_predict,
                 "num_ctx": num_ctx,
             },
-        }).encode("utf-8")
+        }
+        if json_mode:
+            payload_dict["format"] = "json"
+
+        payload = json.dumps(payload_dict).encode("utf-8")
 
         req = urllib.request.Request(
             f"{self.base_url}/api/chat",

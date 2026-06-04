@@ -1,10 +1,23 @@
 """Planner — chia user request thành danh sách task qua LLM, bổ sung context bộ nhớ."""
 import json
 import re
+from typing import List, Dict, Any
+
+from pydantic import BaseModel, Field, ValidationError
 
 from agent.config import load_prompt_file, load_settings
 from agent.llm import OllamaClient, get_planner_llm
 from agent.logger import get_logger
+
+
+class StepSchema(BaseModel):
+    task: str = Field(description="Mô tả ngắn gọn về bước thực hiện")
+    tool: str = Field(description="Tên tool cần gọi")
+    args: Dict[str, Any] = Field(default_factory=dict, description="Các đối số truyền vào cho tool")
+
+
+class PlanSchema(BaseModel):
+    steps: List[StepSchema]
 
 log = get_logger(__name__)
 
@@ -53,14 +66,15 @@ class Planner:
                 prompt, user_message,
                 num_predict=num_predict,
                 caveman=caveman,
+                json_mode=True,
             )
             log.debug("[Planner] Raw response: %r", text)
             parsed = self._parse_plan(text)
             if parsed:
                 return parsed
             return []
-        except json.JSONDecodeError as e:
-            log.warning("[Planner] JSON parse lỗi: %s", e)
+        except (json.JSONDecodeError, ValidationError) as e:
+            log.warning("[Planner] JSON/Validation parse lỗi: %s", e)
         except Exception:
             raise
 
@@ -118,9 +132,21 @@ class Planner:
         fence = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
         if fence:
             cleaned = fence.group(1).strip()
-        data = json.loads(cleaned)
-        if isinstance(data, dict) and "steps" in data:
-            data = data["steps"]
-        if not isinstance(data, list):
-            return []
-        return [step for step in data if isinstance(step, dict)]
+        
+        # Thử parse và validate bằng Pydantic PlanSchema
+        try:
+            plan_obj = PlanSchema.model_validate_json(cleaned)
+            return [step.model_dump() for step in plan_obj.steps]
+        except ValidationError as e:
+            # Fallback nếu model trả về list các steps trực tiếp (ví dụ [ {...} ])
+            try:
+                data = json.loads(cleaned)
+                if isinstance(data, list):
+                    validated_steps = []
+                    for step in data:
+                        if isinstance(step, dict):
+                            validated_steps.append(StepSchema.model_validate(step).model_dump())
+                    return validated_steps
+            except Exception:
+                pass
+            raise e
