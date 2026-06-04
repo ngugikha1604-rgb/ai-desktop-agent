@@ -16,6 +16,10 @@ data/*.db
 data/*.sqlite
 data/*.sqlite3
 
+# Logs
+logs/
+*.log
+
 # IDE
 .vscode/
 .idea/
@@ -41,6 +45,19 @@ Thumbs.db
 desktop.ini
 $RECYCLE.BIN/
 
-# Logs
-*.log
-logs/
+# ── Model caches (faster-whisper / HuggingFace) ──────────────────────────────
+# Các file này nặng hàng trăm MB, không nên commit vào repo.
+# Chúng tự tải về khi chạy lần đầu.
+.cache/
+models/
+*.bin
+*.safetensors
+*.gguf
+*.ggml
+
+# faster-whisper / CTranslate2 model folders
+faster-whisper-*/
+whisper-*/
+
+# HuggingFace hub cache (nếu bị tải vào trong thư mục project)
+hub/

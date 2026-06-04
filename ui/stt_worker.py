@@ -1,4 +1,8 @@
-"""SttWorker — QThread quản lý ghi âm và chuyển đổi giọng nói → văn bản."""
+"""SttWorker — QThread quản lý ghi âm và chuyển đổi giọng nói → văn bản.
+
+Khi SttWorker bắt đầu chạy (QThread.start()), nếu model chưa load,
+nó sẽ load ngay trong thread này (không block UI thread).
+"""
 from __future__ import annotations
 
 import numpy as np
@@ -13,7 +17,7 @@ _SAMPLE_RATE    = 16000
 _CHANNELS       = 1
 _CHUNK_DURATION = 0.1            # giây mỗi chunk đọc từ mic
 _CHUNK_FRAMES   = int(_SAMPLE_RATE * _CHUNK_DURATION)
-_SILENCE_DBFS   = -40.0          # ngưỡng im lặng
+_SILENCE_DBFS   = -40.0          # ngưỡng im lặng (dBFS)
 _SILENCE_SEC    = 1.5            # giây im lặng liên tục → kết thúc ghi
 _TIMEOUT_SEC    = 10.0           # giây không có âm → tự huỷ
 
@@ -26,9 +30,9 @@ def _rms_dbfs(chunk: np.ndarray) -> float:
 class SttWorker(QThread):
     """Ghi âm liên tục → phát hiện im lặng → transcribe."""
 
-    transcribed    = Signal(str)   # văn bản kết quả (có thể rỗng)
+    transcribed    = Signal(str)   # văn bản kết quả
     error_occurred = Signal(str)   # thông báo lỗi hiển thị cho user
-    cancelled      = Signal()      # bị huỷ bởi Esc hoặc timeout
+    cancelled      = Signal()      # bị huỷ (Esc hoặc timeout)
 
     def __init__(self, engine: STTEngine, preferred_device=None) -> None:
         super().__init__()
@@ -41,6 +45,16 @@ class SttWorker(QThread):
         self._stop = True
 
     def run(self) -> None:
+        # Nếu model chưa load, load ở đây (trong background thread, không block UI)
+        if not self._engine.available:
+            log.debug("[STT] Model chưa load, đang tải trong background thread...")
+            if not self._engine._ensure_loaded():
+                self.error_occurred.emit(
+                    "Không thể tải model STT. "
+                    "Chạy: pip install faster-whisper"
+                )
+                return
+
         try:
             import sounddevice as sd
         except ImportError:
@@ -92,7 +106,7 @@ class SttWorker(QThread):
                                 break   # im lặng đủ → kết thúc tự nhiên
                         else:
                             if no_audio_acc >= _TIMEOUT_SEC:
-                                log.debug("[STT] Timeout không có âm.")
+                                log.debug("[STT] Timeout: không có âm trong %.1fs.", _TIMEOUT_SEC)
                                 self.cancelled.emit()
                                 return
 
@@ -112,7 +126,7 @@ class SttWorker(QThread):
             self.transcribed.emit("")
             return
 
-        # Transcribe
+        # Transcribe (model đã sẵn sàng từ đầu hàm run())
         audio_bytes = np.concatenate(audio_chunks).tobytes()
         text = self._engine.transcribe(audio_bytes, _SAMPLE_RATE)
 

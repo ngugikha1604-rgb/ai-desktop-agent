@@ -74,6 +74,9 @@ class OllamaClient:
         except (OllamaServerError, OllamaConnectionError, OllamaModelNotFoundError):
             raise
         except urllib.error.HTTPError as e:
+            if e.code == 404:
+                # Model không tìm thấy trong Ollama
+                raise OllamaModelNotFoundError(self.model) from e
             if e.code >= 500:
                 raise OllamaServerError(f"HTTP {e.code}") from e
             raise OllamaConnectionError(f"HTTP {e.code}") from e
@@ -103,18 +106,29 @@ class OllamaClient:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _check_ollama(base_url: str, model: str) -> None:
-    """Kiểm tra Ollama đang chạy và model đã pull chưa. Raise ngoại lệ cụ thể."""
+    """Kiểm tra Ollama đang chạy và model đã pull chưa.
+
+    BUG FIX: dùng exact match thay vì substring match.
+    "qwen2.5" KHÔNG nên khớp với "qwen2.5:7b" khi cần "qwen2.5:3b".
+    """
     try:
         with urllib.request.urlopen(f"{base_url}/api/tags", timeout=3) as r:
             tags = json.loads(r.read())
     except Exception as e:
         raise OllamaConnectionError(str(e)) from e
 
-    available = [m["name"] for m in tags.get("models", [])]
-    base_name = model.split(":")[0]
-    found = any(base_name in m for m in available)
-    if not found:
-        log.warning("[Ollama] Model '%s' chưa thấy trong danh sách.", model)
+    available: list[str] = [m["name"] for m in tags.get("models", [])]
+
+    # Exact match trước; nếu không có thì không raise
+    # (model sẽ fail ở bước generate() với HTTP 404 → OllamaModelNotFoundError)
+    if not available:
+        # Ollama đang chạy nhưng chưa pull model nào
+        raise OllamaModelNotFoundError(model)
+
+    if model not in available:
+        log.warning(
+            "[Ollama] Model '%s' không có trong danh sách %s.", model, available
+        )
         raise OllamaModelNotFoundError(model)
 
 

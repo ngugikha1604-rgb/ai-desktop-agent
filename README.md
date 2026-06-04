@@ -23,7 +23,7 @@ Một AI Agent chạy **hoàn toàn cục bộ** trên Windows, nhận lệnh ng
 → Đã mở tab mới.
 
 > Desktop của tôi ở D:\Desktop
-→ Đã ghi nhớ: đường dẫn Desktop = D:\Desktop
+→ 📌 Đã ghi nhớ: đường dẫn Desktop = D:\Desktop
 
 > Bạn còn nhớ gì về tôi?
 → 📁 Đường dẫn:
@@ -44,10 +44,10 @@ Một AI Agent chạy **hoàn toàn cục bộ** trên Windows, nhận lệnh ng
 | Shell | Chạy lệnh terminal |
 | Clipboard | Đọc / ghi clipboard |
 | Screen | Chụp màn hình, gửi Windows notification |
-| Browser | Mở URL, tìm kiếm Google, điều khiển tab (new/close/reload/back/forward) |
-| Voice input | Nhập lệnh bằng giọng nói (tiếng Việt + tiếng Anh) — Ctrl+Alt+V |
-| Long-term memory | Tự động ghi nhớ thông tin cá nhân, đường dẫn, ứng dụng ưa thích qua nhiều phiên |
-| User profile | Lưu tên người dùng, ngôn ngữ ưa thích |
+| Browser | Mở URL, tìm kiếm Google, điều khiển tab |
+| Voice input | Nhập lệnh bằng giọng nói (vi + en) — `Ctrl+Alt+V` |
+| Long-term memory | Tự nhớ đường dẫn, app ưa thích, thông tin cá nhân qua nhiều phiên |
+| User profile | Tên người dùng, ngôn ngữ ưa thích |
 
 ---
 
@@ -57,15 +57,14 @@ Một AI Agent chạy **hoàn toàn cục bộ** trên Windows, nhận lệnh ng
 
 - Windows 10/11
 - Python 3.12+
-- [Ollama](https://ollama.com/download) đã cài và đang chạy
+- [Ollama](https://ollama.com/download)
 
 ### 1. Cài Ollama và pull model
 
 ```bash
-# Tải Ollama tại https://ollama.com/download, sau đó:
-ollama serve
+# Tải Ollama tại https://ollama.com/download
 
-# Pull 2 model (chạy lần đầu, ~2-4 GB)
+# Pull 2 model (chỉ cần làm một lần, ~2-4 GB)
 ollama pull qwen2.5:3b
 ollama pull qwen2.5:0.5b
 ```
@@ -76,11 +75,24 @@ ollama pull qwen2.5:0.5b
 pip install -r requirements.txt
 ```
 
-> **Lưu ý về STT (giọng nói):** Model Whisper `base` (~145 MB) sẽ tự tải lần đầu khi bạn nhấn nút mic 🎤.
+> **Về STT (giọng nói):** Tính năng này cần `faster-whisper` (đã có trong `requirements.txt`).
+> Model Whisper `base` (~145 MB) tự tải lần đầu khi bạn nhấn nút mic — **không ảnh hưởng tốc độ khởi động app**.
 
-### 3. Cấu hình (tuỳ chọn)
+### 3. Chạy
 
-Chỉnh `config/settings.json` để đổi model hoặc thiết lập microphone:
+```bash
+python main.py
+```
+
+Agent chạy nền ở system tray. Nhấn **`Ctrl+Alt+J`** để mở command bar.
+
+> **Lưu ý về Ollama:** App khởi động bình thường dù Ollama chưa chạy.
+> Nếu bạn gửi lệnh khi Ollama chưa lên, app sẽ hiển thị hướng dẫn thay vì báo lỗi kỹ thuật.
+> Bật Ollama bất kỳ lúc nào bằng `ollama serve` (hoặc để nó tự chạy nền nếu đã cài dịch vụ).
+
+### 4. Cấu hình (tuỳ chọn)
+
+Chỉnh `config/settings.json`:
 
 ```json
 {
@@ -90,14 +102,6 @@ Chỉnh `config/settings.json` để đổi model hoặc thiết lập microphon
 }
 ```
 
-### 4. Chạy
-
-```bash
-python main.py
-```
-
-Agent chạy nền ở system tray. Nhấn **`Ctrl+Alt+J`** để mở command bar.
-
 ---
 
 ## Phím tắt
@@ -105,8 +109,8 @@ Agent chạy nền ở system tray. Nhấn **`Ctrl+Alt+J`** để mở command b
 | Phím tắt | Chức năng |
 |----------|-----------|
 | `Ctrl+Alt+J` | Bật / tắt Command Bar |
-| `Ctrl+Alt+V` | Bật / tắt nhập lệnh bằng giọng nói |
-| `Esc` | Đóng Command Bar (hoặc huỷ ghi âm nếu đang nghe) |
+| `Ctrl+Alt+V` | Bật / tắt nhập giọng nói |
+| `Esc` | Đóng bar (hoặc huỷ ghi âm nếu đang nghe) |
 | `Enter` | Gửi lệnh |
 
 ---
@@ -123,51 +127,48 @@ ai-desktop-agent/
 │   ├── executor.py              # Chạy từng tool theo plan
 │   ├── memory.py                # SQLite: history, user_profile, long_term_memory
 │   ├── memory_extractor.py      # Trích xuất thông tin từ hội thoại (background)
-│   ├── stt_engine.py            # faster-whisper: speech → text (local)
+│   ├── stt_engine.py            # faster-whisper: speech → text (lazy load)
 │   ├── llm.py                   # OllamaClient + typed exceptions
 │   ├── config.py                # Load settings + env
-│   └── logger.py                # Logging tập trung → logs/agent.log
+│   └── logger.py                # Logging → logs/agent.log
 │
 ├── tools/
 │   ├── __init__.py              # TOOL_REGISTRY (16 tools)
-│   ├── open_app.py              # Mở ứng dụng
-│   ├── kill_process.py          # Tắt process
-│   ├── search_file.py           # Tìm file theo tên
-│   ├── read_file.py             # Đọc nội dung file
-│   ├── write_file.py            # Ghi / tạo file
-│   ├── run_command.py           # Chạy lệnh shell
-│   ├── system_info.py           # CPU / RAM / Disk
-│   ├── process_info.py          # Danh sách process
-│   ├── active_window.py         # Cửa sổ đang focus
-│   ├── clipboard.py             # Đọc / ghi clipboard
-│   ├── screenshot.py            # Chụp màn hình
-│   ├── notification.py          # Windows toast notification
+│   ├── open_app.py
+│   ├── kill_process.py
+│   ├── search_file.py
+│   ├── read_file.py
+│   ├── write_file.py
+│   ├── run_command.py
+│   ├── system_info.py
+│   ├── process_info.py
+│   ├── active_window.py
+│   ├── clipboard.py
+│   ├── screenshot.py
+│   ├── notification.py
 │   ├── browser.py               # open_url, search_web
 │   ├── browser_control.py       # browser_action (tab control)
-│   └── result.py                # Helper ok() / fail()
+│   └── result.py
 │
 ├── ui/
 │   ├── app.py                   # QApplication, STT, profile check
-│   ├── command_bar.py           # Floating chat window, mic button
+│   ├── command_bar.py           # Floating window, mic button
 │   ├── worker.py                # QThread + timeout 60s
 │   ├── stt_worker.py            # QThread ghi âm + silence detection
-│   ├── hotkey.py                # Global hotkeys: Ctrl+Alt+J, Ctrl+Alt+V
+│   ├── hotkey.py                # Ctrl+Alt+J, Ctrl+Alt+V
 │   ├── tray.py                  # System tray icon
 │   └── styles.py                # QSS stylesheet
 │
 ├── prompts/
-│   ├── planner_prompt.txt       # System prompt cho Planner (16 tools)
-│   └── agent_prompt.txt         # System prompt cho response formatter
+│   ├── planner_prompt.txt
+│   └── agent_prompt.txt
 │
 ├── config/
-│   └── settings.json            # Model, STT, UI config
+│   └── settings.json
 │
-├── data/                        # SQLite memory (git-ignored)
+├── data/                        # SQLite (git-ignored)
 ├── logs/                        # agent.log (git-ignored)
-├── tests/
-├── requirements.txt
-├── .env.example
-└── README.md
+└── tests/
 ```
 
 ---
@@ -180,34 +181,33 @@ Ctrl+Alt+J / Ctrl+Alt+V
         ▼
  CommandBar (PySide6)
   ┌─────┴──────┐
-  │  text input │  mic button 🎤
+  │ text input │  🎤 mic button
   └─────┬──────┘       │
         │         SttWorker (QThread)
-        │         → faster-whisper
+        │         load model khi lần đầu dùng
+        │         → faster-whisper transcribe
         │         → fill_and_submit()
         ▼
  AgentWorker (QThread, timeout 60s)
         │
         ▼
    Agent.run()
-    ├─► Memory.get_recent_history()
-    ├─► Planner  ──► OllamaClient (qwen2.5:3b)
-    │               └─ inject long_term_memory context
-    │               └─► JSON plan
+    ├─► Memory (SQLite)
+    ├─► Planner ──► OllamaClient (qwen2.5:3b)
+    │              inject long_term_memory context
+    │              → JSON plan
     ├─► Executor ──► TOOL_REGISTRY (16 tools)
-    ├─► _format_response ──► OllamaClient (qwen2.5:0.5b)
+    ├─► ResponseFormatter ──► OllamaClient (qwen2.5:0.5b)
     └─► MemoryExtractor (background thread)
-            └─► lưu long_term_memory / user_profile
+            save long_term_memory / user_profile
         │
         ▼
- CommandBar — hiển thị response + "📌 Đã ghi nhớ"
+ CommandBar — response + "📌 Đã ghi nhớ"
 ```
 
 ---
 
 ## Long-term Memory
-
-Agent tự động ghi nhớ thông tin qua nhiều phiên làm việc:
 
 | Loại | Ví dụ |
 |------|-------|
@@ -216,12 +216,10 @@ Agent tự động ghi nhớ thông tin qua nhiều phiên làm việc:
 | `schedule` | "Họp mỗi thứ Hai 9h sáng" |
 | `personal` | "Tên tôi là Nam", "Tôi là lập trình viên" |
 
-**Câu lệnh quản lý bộ nhớ:**
-
 ```
-> Bạn còn nhớ gì về tôi?      — Xem tất cả bộ nhớ
-> Quên đi rằng Desktop tôi    — Xoá bộ nhớ cụ thể
-> Tên tôi là [tên]            — Cập nhật tên tự động
+> Bạn còn nhớ gì về tôi?   — xem tất cả bộ nhớ
+> Quên đi rằng Desktop tôi  — xoá bộ nhớ cụ thể
+> Tên tôi là [tên]          — cập nhật tên tự động
 ```
 
 ---
@@ -230,10 +228,10 @@ Agent tự động ghi nhớ thông tin qua nhiều phiên làm việc:
 
 | Thành phần | Công nghệ |
 |------------|-----------|
-| LLM | Ollama — Qwen2.5 3B / 0.5B (chạy hoàn toàn cục bộ) |
+| LLM | Ollama — Qwen2.5 3B / 0.5B (local) |
 | STT | faster-whisper `base` — Whisper (local, vi + en) |
 | UI | PySide6 (Qt6) |
-| Database | SQLite (thuần Python, không cần server) |
+| Database | SQLite (built-in Python) |
 | System APIs | pywin32, psutil |
 | Browser control | pyautogui |
 | Screenshot | Pillow |
@@ -243,12 +241,12 @@ Agent tự động ghi nhớ thông tin qua nhiều phiên làm việc:
 ## Roadmap
 
 - [x] Phase 1 — MVP: mở app, system info, chạy lệnh
-- [x] Phase 2 — File management: tìm, đọc, ghi file
-- [x] Phase 3 — Memory: lưu chat history SQLite
-- [x] Phase 4 — Multi-step planning: JSON plan
-- [x] Phase 5 — Tool registry: 13 tools, clipboard, screenshot, notification
-- [x] Phase 6 — Desktop UX: floating command bar, chat bubbles, hotkey, tray
-- [x] Phase 7 — Local LLM: chuyển sang Ollama / Qwen2.5
+- [x] Phase 2 — File management
+- [x] Phase 3 — Chat history (SQLite)
+- [x] Phase 4 — Multi-step planning
+- [x] Phase 5 — Tool registry (13 tools)
+- [x] Phase 6 — Desktop UX: floating bar, hotkey, tray
+- [x] Phase 7 — Local LLM (Ollama / Qwen2.5)
 - [x] Phase 8 — Long-term memory & user profile
-- [x] Phase 9 — Voice input: faster-whisper, Ctrl+Alt+V
-- [x] Phase 10 — Browser automation: open URL, search, tab control
+- [x] Phase 9 — Voice input (faster-whisper)
+- [x] Phase 10 — Browser automation

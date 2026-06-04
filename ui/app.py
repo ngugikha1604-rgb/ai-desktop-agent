@@ -39,10 +39,9 @@ class DesktopApp:
             on_quit=QApplication.instance().quit,
         )
 
-        # ── STT ─────────────────────────────────────────────────────
+        # ── STT (khởi tạo lazy — không tải model ở đây) ─────────────
         self._stt_engine: STTEngine | None = None
         self._stt_worker: SttWorker | None = None
-        self._stt_enabled = False
         self._init_stt()
 
         # ── Memory callback ─────────────────────────────────────────
@@ -51,16 +50,17 @@ class DesktopApp:
     # ── Initialization ─────────────────────────────────────────────────
 
     def _init_stt(self) -> None:
+        """Chỉ kiểm tra faster-whisper có được cài chưa.
+        Model KHÔNG được tải ở đây — tải lần đầu khi user dùng voice.
+        """
         try:
             engine = STTEngine()
-            if engine.available:
-                self._stt_engine  = engine
-                self._stt_enabled = True
-                log.debug("[App] STT Engine sẵn sàng.")
+            if engine.importable:
+                self._stt_engine = engine
+                log.debug("[App] STTEngine sẵn sàng (model chưa load, sẽ load khi dùng).")
             else:
                 self._bar.disable_mic(
-                    "faster-whisper chưa cài hoặc lỗi load model. "
-                    "Chạy: pip install faster-whisper"
+                    "faster-whisper chưa cài. Chạy: pip install faster-whisper"
                 )
         except Exception as e:
             log.warning("[App] STT init lỗi: %s", e)
@@ -132,20 +132,20 @@ class DesktopApp:
     # ── Memory notification ────────────────────────────────────────────
 
     def _on_memory_saved(self, saved_items: list[dict]) -> None:
-        # Chuyển về main thread qua QTimer
+        # Chuyển về main thread qua QTimer.singleShot (thread-safe)
         QTimer.singleShot(0, lambda: self._bar.show_memory_notice(saved_items))
 
     # ── Voice input ────────────────────────────────────────────────────
 
     def _on_voice_toggle(self) -> None:
-        if not self._stt_enabled or self._stt_engine is None:
+        if self._stt_engine is None:
             self._bar.show_response(
                 "Không thể truy cập microphone. "
                 "Hãy kiểm tra quyền truy cập trong Settings → Privacy → Microphone."
             )
             return
 
-        # Đang ghi → dừng
+        # Đang ghi → dừng/huỷ
         if self._stt_worker and self._stt_worker.isRunning():
             self._stt_worker.stop()
             self._bar.set_recording(False)
