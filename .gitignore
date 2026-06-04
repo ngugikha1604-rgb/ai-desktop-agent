@@ -61,3 +61,6 @@ whisper-*/
 
 # HuggingFace hub cache (nếu bị tải vào trong thư mục project)
 hub/
+
+#Implementation plan
+PLAN.md

@@ -1,3 +1,4 @@
+"""Executor — thực thi một tool call từ Agent Loop."""
 from agent.logger import get_logger
 from tools import TOOL_REGISTRY
 from tools.result import fail
@@ -6,46 +7,23 @@ log = get_logger(__name__)
 
 
 class Executor:
-    """Map task → tool → thực thi."""
+    """Chạy một action {"type": "tool", "tool": "...", "args": {...}}."""
 
-    def execute(self, plan: list[dict]) -> list[dict]:
-        log.info(f"Bắt đầu thực thi {len(plan)} bước trong kế hoạch...")
-        results: list[dict] = []
-        for i, step in enumerate(plan, 1):
-            log.info(f"Thực thi bước {i}/{len(plan)}: {step.get('task', 'N/A')}")
-            res = self._run_step(step)
-            if res.get("status") == "fail":
-                log.info(f"Bước {i} THẤT BẠI: {res.get('message') or 'Lỗi không xác định'}")
-            else:
-                log.info(f"Bước {i} HOÀN THÀNH THÀNH CÔNG: {res.get('message') or 'Hoàn tất'}")
-            results.append(res)
-        log.info(f"Đã hoàn thành thực thi toàn bộ kế hoạch.")
-        return results
-
-    def _run_step(self, step: dict) -> dict:
-        task = step.get("task", "")
-        tool_name = step.get("tool")
-        args = step.get("args") or {}
+    def run_one(self, action: dict) -> dict:
+        """Thực thi 1 tool action, trả về result dict {success, message, data}."""
+        tool_name = action.get("tool", "")
+        args = action.get("args") or {}
 
         if not isinstance(args, dict):
-            err_msg = f"Tham số tool không hợp lệ cho task '{task}'."
-            log.error(f"[LỖI]: {err_msg}")
-            return fail(err_msg)
+            return fail(f"Args không hợp lệ cho tool '{tool_name}'.")
 
-        if tool_name and tool_name in TOOL_REGISTRY:
-            try:
-                log.info(f"Chạy tool '{tool_name}' với args={args}")
-                return TOOL_REGISTRY[tool_name](**args)
-            except TypeError as exc:
-                err_msg = f"Lỗi tham số tool '{tool_name}': {exc}"
-                log.error(f"[LỖI]: {err_msg}")
-                return fail(err_msg)
-            except Exception as exc:
-                err_msg = f"Lỗi khi chạy '{tool_name}': {exc}"
-                log.error(f"[LỖI]: {err_msg}")
-                return fail(err_msg)
+        if tool_name not in TOOL_REGISTRY:
+            return fail(f"Tool '{tool_name}' không tồn tại.")
 
-        err_msg = f"Task '{task}' chưa gắn tool (tool_name='{tool_name}' không tồn tại hoặc không hợp lệ)."
-        log.error(f"[LỖI]: {err_msg}")
-        return fail(err_msg, step)
-
+        try:
+            log.info("[Executor] %s(%s)", tool_name, args)
+            return TOOL_REGISTRY[tool_name](**args)
+        except TypeError as exc:
+            return fail(f"Lỗi tham số '{tool_name}': {exc}")
+        except Exception as exc:
+            return fail(f"Lỗi khi chạy '{tool_name}': {exc}")
