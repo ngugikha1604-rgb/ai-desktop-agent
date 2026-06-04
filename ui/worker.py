@@ -7,7 +7,7 @@ from PySide6.QtCore import QThread, Signal
 
 from agent import Agent
 
-_TIMEOUT_SECONDS = 60
+_TIMEOUT_SECONDS = 300
 
 
 class AgentWorker(QThread):

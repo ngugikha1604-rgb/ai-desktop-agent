@@ -19,6 +19,9 @@ from agent.planner import Planner
 
 log = get_logger(__name__)
 
+# Giới hạn tool result để tránh gửi quá nhiều token (vd: list_dir hàng trăm dòng)
+_RAW_SUMMARY_MAX = 1500
+
 _REMEMBER_PATTERNS = [
     r"bạn (còn )?nhớ gì (về tôi|về mình)",
     r"nhớ gì về tôi",
@@ -65,7 +68,9 @@ class Agent:
                 self.memory.save_message("assistant", special)
                 return special
 
-            history = self.memory.get_recent_history(limit=10)
+            s = load_settings()
+            history_limit = s.get("history_limit", 6)
+            history = self.memory.get_recent_history(limit=history_limit)
             plan = self.planner.plan(user_input, history)
 
             if self._is_fallback_plan(plan):
@@ -166,7 +171,13 @@ class Agent:
             settings = load_settings()
             system_prompt = load_prompt_file(settings["agent_prompt"])
             system_prompt = self._enrich_system_prompt(system_prompt)
-            return self._get_llm().generate(system_prompt, user_input)
+            num_predict = settings.get("num_predict_response", 512)
+            caveman = settings.get("caveman_mode", True)
+            return self._get_llm().generate(
+                system_prompt, user_input,
+                num_predict=num_predict,
+                caveman=caveman,
+            )
         except (OllamaConnectionError, OllamaModelNotFoundError, OllamaServerError):
             raise
         except Exception as e:
@@ -176,16 +187,27 @@ class Agent:
     def _format_response(self, user_input: str, results: list[dict]) -> str:
         raw_lines = [r.get("message", "") for r in results if r.get("message")]
         raw_summary = "\n".join(raw_lines) if raw_lines else "(Không có kết quả)"
+
+        # Cắt tool output dài (vd: list_dir, grep) để tiết kiệm token
+        if len(raw_summary) > _RAW_SUMMARY_MAX:
+            raw_summary = raw_summary[:_RAW_SUMMARY_MAX] + "\n…(truncated)"
+
         try:
             settings = load_settings()
             system_prompt = load_prompt_file(settings["agent_prompt"])
             system_prompt = self._enrich_system_prompt(system_prompt)
+            num_predict = settings.get("num_predict_response", 512)
+            caveman = settings.get("caveman_mode", True)
             user_message = (
-                f"User request: {user_input}\n\n"
-                f"Tool results:\n{raw_summary}\n\n"
-                f"Please summarize the results naturally in Vietnamese."
+                f"Req: {user_input}\n\n"
+                f"Results:\n{raw_summary}\n\n"
+                f"Summarize in Vietnamese."
             )
-            return self._get_llm().generate(system_prompt, user_message)
+            return self._get_llm().generate(
+                system_prompt, user_message,
+                num_predict=num_predict,
+                caveman=caveman,
+            )
         except (OllamaConnectionError, OllamaModelNotFoundError, OllamaServerError):
             raise
         except Exception as e:

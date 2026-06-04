@@ -1,11 +1,13 @@
-def test_agent_import():
-    from agent import Agent
-
-    assert Agent is not None
+import unittest
 
 
-def test_tool_registry():
-    from tools import TOOL_REGISTRY
+class TestImports(unittest.TestCase):
+    def test_agent_import(self):
+        from agent import Agent
+        self.assertIsNotNone(Agent)
 
-    assert "open_app" in TOOL_REGISTRY
-    assert len(TOOL_REGISTRY) == 7
+    def test_tool_registry(self):
+        from tools import TOOL_REGISTRY
+        self.assertIn("open_app", TOOL_REGISTRY)
+        self.assertEqual(len(TOOL_REGISTRY), 16)
+

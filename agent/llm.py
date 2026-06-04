@@ -16,6 +16,12 @@ log = get_logger(__name__)
 _OLLAMA_BASE = "http://localhost:11434"
 _TIMEOUT = 300  # 5 phút
 
+_CAVEMAN_PREFIX = (
+    "Respond terse. Drop articles/filler/pleasantries. "
+    "Keep nouns/verbs/numbers/technical terms. "
+    "No intro/outro. Direct answer only.\n\n"
+)
+
 
 # ── Custom exceptions ─────────────────────────────────────────────────────────
 
@@ -43,8 +49,21 @@ class OllamaClient:
         self.model = model
         self.base_url = base_url
 
-    def generate(self, system_prompt: str, user_message: str) -> str:
+    def generate(
+        self,
+        system_prompt: str,
+        user_message: str,
+        num_predict: int = 512,
+        caveman: bool = False,
+    ) -> str:
         log.debug("[Ollama:%s] Đang xử lý...", self.model)
+
+        # Caveman: inject prefix nén output trước system prompt
+        if caveman:
+            system_prompt = _CAVEMAN_PREFIX + system_prompt.strip()
+
+        s = load_settings()
+        num_ctx = s.get("num_ctx", 4096)
 
         payload = json.dumps({
             "model": self.model,
@@ -53,7 +72,11 @@ class OllamaClient:
                 {"role": "user",   "content": user_message.strip()},
             ],
             "stream": False,
-            "options": {"temperature": 0.2, "num_predict": 1024},
+            "options": {
+                "temperature": 0.2,
+                "num_predict": num_predict,
+                "num_ctx": num_ctx,
+            },
         }).encode("utf-8")
 
         req = urllib.request.Request(
@@ -75,7 +98,6 @@ class OllamaClient:
             raise
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                # Model không tìm thấy trong Ollama
                 raise OllamaModelNotFoundError(self.model) from e
             if e.code >= 500:
                 raise OllamaServerError(f"HTTP {e.code}") from e
@@ -119,10 +141,7 @@ def _check_ollama(base_url: str, model: str) -> None:
 
     available: list[str] = [m["name"] for m in tags.get("models", [])]
 
-    # Exact match trước; nếu không có thì không raise
-    # (model sẽ fail ở bước generate() với HTTP 404 → OllamaModelNotFoundError)
     if not available:
-        # Ollama đang chạy nhưng chưa pull model nào
         raise OllamaModelNotFoundError(model)
 
     if model not in available:

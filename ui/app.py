@@ -3,6 +3,18 @@ from __future__ import annotations
 
 import sys
 
+# Reconfigure stdout and stderr to UTF-8 to prevent UnicodeEncodeError on Windows
+if sys.stdout is not None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+if sys.stderr is not None:
+    try:
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 

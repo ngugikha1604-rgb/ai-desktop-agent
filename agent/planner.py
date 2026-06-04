@@ -10,6 +10,8 @@ log = get_logger(__name__)
 
 _MIN_RELEVANCE = 0.3
 _MAX_MEMORY_ITEMS = 5
+# Cắt ngắn mỗi turn trong history để tiết kiệm token cho planner
+_HISTORY_CONTENT_MAX = 200
 
 _STOPWORDS = {
     "tôi", "bạn", "là", "có", "và", "với", "của", "để", "cho",
@@ -41,9 +43,17 @@ class Planner:
     def plan(self, user_input: str, history: list[dict] | None = None) -> list[dict]:
         log.debug("[Planner] Lập kế hoạch: %r", user_input)
         try:
+            s = load_settings()
+            num_predict = s.get("num_predict_planner", 256)
+            caveman = s.get("caveman_mode", True)
+
             prompt = self._load_planner_prompt()
             user_message = self._build_user_message(user_input, history)
-            text = self._get_llm().generate(prompt, user_message)
+            text = self._get_llm().generate(
+                prompt, user_message,
+                num_predict=num_predict,
+                caveman=caveman,
+            )
             log.debug("[Planner] Raw response: %r", text)
             parsed = self._parse_plan(text)
             if parsed:
@@ -62,19 +72,22 @@ class Planner:
         # 1. Memory context
         memory_ctx = self._get_memory_context(user_input)
         if memory_ctx:
-            parts.append(f"[Thông tin cá nhân đã biết]\n{memory_ctx}")
+            parts.append(f"[Mem]\n{memory_ctx}")
 
-        # 2. Conversation history
+        # 2. Conversation history — giữ 4 turn gần nhất, cắt content dài
         if history:
-            recent = history[-6:]
+            recent = history[-4:]
             lines = []
             for msg in recent:
-                role = "User" if msg["role"] == "user" else "Assistant"
-                lines.append(f"{role}: {msg['content']}")
-            parts.append("[Lịch sử hội thoại]\n" + "\n".join(lines))
+                role = "U" if msg["role"] == "user" else "A"
+                content = msg["content"]
+                if len(content) > _HISTORY_CONTENT_MAX:
+                    content = content[:_HISTORY_CONTENT_MAX] + "…"
+                lines.append(f"{role}: {content}")
+            parts.append("[Hist]\n" + "\n".join(lines))
 
         # 3. Current request
-        parts.append(f"[Yêu cầu hiện tại]\n{user_input}")
+        parts.append(f"[Req]\n{user_input}")
         return "\n\n".join(parts)
 
     def _get_memory_context(self, user_input: str) -> str:

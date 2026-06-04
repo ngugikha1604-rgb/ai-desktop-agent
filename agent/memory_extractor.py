@@ -6,6 +6,7 @@ import re
 import threading
 from typing import Callable
 
+from agent.config import load_settings
 from agent.logger import get_logger
 
 log = get_logger(__name__)
@@ -17,6 +18,22 @@ _SENSITIVE_KEYWORDS = [
 
 _NAME_PATTERNS = [
     r"(?:tên tôi là|gọi tôi là|tôi tên là|tên mình là)\s+([^\.,\!\?\n]{1,100})",
+]
+
+# ── Heuristic filter constants ────────────────────────────────────────────────
+# Bỏ qua LLM call khi input quá ngắn hoặc không có giá trị lưu trữ
+_MIN_INPUT_LEN = 20
+_SKIP_INPUTS: set[str] = {
+    "cảm ơn", "ok", "được rồi", "tốt", "không", "có", "thôi",
+    "ừ", "vâng", "dạ", "oke", "okey", "bye", "tạm biệt",
+    "thanks", "thank you", "okay", "yes", "no", "done",
+}
+# Chỉ extract khi input chứa ít nhất một keyword gợi ý có thông tin đáng lưu
+_MEMORY_HINT_KEYWORDS: list[str] = [
+    "là", "ở", "thích", "hay dùng", "path", "folder", "thư mục",
+    "tên", "tuổi", "nghề", "lịch", "schedule", "prefer", "use",
+    "i am", "i like", "i work", "tôi làm", "tôi dùng", "tôi ở",
+    "desktop", "download", "documents", "project",
 ]
 
 _EXTRACT_SYSTEM_PROMPT = """Bạn là công cụ trích xuất thông tin có giá trị lâu dài từ hội thoại.
@@ -75,6 +92,22 @@ class MemoryExtractor:
         on_saved: Callable[[list[dict]], None] | None,
     ) -> None:
         try:
+            # ── Heuristic filter: bỏ qua LLM call khi không cần thiết ──────
+            text_lower = user_input.strip().lower()
+
+            if len(text_lower) < _MIN_INPUT_LEN:
+                log.debug("[MemoryExtractor] Bỏ qua: input quá ngắn (%d chars)", len(text_lower))
+                return
+
+            if text_lower in _SKIP_INPUTS:
+                log.debug("[MemoryExtractor] Bỏ qua: generic phrase '%s'", text_lower)
+                return
+
+            if not any(kw in text_lower for kw in _MEMORY_HINT_KEYWORDS):
+                log.debug("[MemoryExtractor] Bỏ qua: không có memory hint keyword")
+                return
+            # ─────────────────────────────────────────────────────────────────
+
             saved: list[dict] = []
 
             # 1. Kiểm tra pattern tên trực tiếp (không cần LLM)
@@ -116,8 +149,15 @@ class MemoryExtractor:
     def _llm_extract(self, user_input: str, assistant_response: str) -> list[dict]:
         """Dùng LLM để trích xuất thông tin có giá trị."""
         try:
+            s = load_settings()
+            num_predict = s.get("num_predict_extractor", 128)
+
             conversation = f"User: {user_input}\nAssistant: {assistant_response}"
-            result_text = self._get_llm().generate(_EXTRACT_SYSTEM_PROMPT, conversation)
+            result_text = self._get_llm().generate(
+                _EXTRACT_SYSTEM_PROMPT, conversation,
+                num_predict=num_predict,
+                caveman=False,  # extractor cần JSON chính xác, không nén
+            )
 
             cleaned = result_text.strip()
             fence = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
@@ -132,8 +172,8 @@ class MemoryExtractor:
             for item in items:
                 if not isinstance(item, dict):
                     continue
-                key   = str(item.get("key", "")).strip()
-                value = str(item.get("value", "")).strip()
+                key      = str(item.get("key", "")).strip()
+                value    = str(item.get("value", "")).strip()
                 mem_type = str(item.get("type", "personal"))
                 if not key or not value:
                     continue

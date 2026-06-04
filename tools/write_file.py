@@ -16,8 +16,11 @@ def write_file(path: str, content: str, append: bool = False) -> dict:
 
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        mode = "a" if append else "w"
-        p.write_text(content or "", encoding="utf-8") if mode == "w" else p.open("a", encoding="utf-8").write(content or "")
+        if append:
+            with p.open("a", encoding="utf-8") as f:
+                f.write(content or "")
+        else:
+            p.write_text(content or "", encoding="utf-8")
         action = "Đã thêm vào" if append else "Đã ghi"
         return ok(f"{action} file '{p.name}' ({len(content or '')} ký tự).", {"path": str(p)})
     except PermissionError:

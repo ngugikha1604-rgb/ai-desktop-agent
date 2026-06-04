@@ -8,6 +8,12 @@
   "database": "data/memory.db",
   "preferred_microphone": null,
   "stt_model": "base",
+  "num_ctx": 4096,
+  "num_predict_planner": 256,
+  "num_predict_response": 512,
+  "num_predict_extractor": 128,
+  "caveman_mode": true,
+  "history_limit": 6,
   "ui": {
     "hotkey_modifiers": "ctrl+alt",
     "hotkey_key": "j",
