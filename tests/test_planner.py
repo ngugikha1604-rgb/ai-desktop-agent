@@ -78,6 +78,7 @@ class TestPlannerBuildMessage(unittest.TestCase):
     def test_with_history_and_observation(self):
         state = AgentState(
             goal="Kiểm tra RAM",
+            user_name="Khánh",
             history=[{
                 "action": {"type": "tool", "tool": "get_system_info", "args": {}},
                 "observation": "RAM: 8GB/16GB",

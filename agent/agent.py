@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from typing import Callable
 
 from agent.config import load_settings
 from agent.executor import Executor
@@ -15,6 +16,7 @@ from agent.memory import Memory
 from agent.memory_extractor import MemoryExtractor
 from agent.planner import Planner
 from agent.state import AgentState
+from agent.task_analyzer import TaskAnalyzer
 
 log = get_logger(__name__)
 
@@ -38,13 +40,12 @@ _FORGET_PATTERNS = [
 class Agent:
     def __init__(self) -> None:
         self.memory = Memory()
+        self.analyzer = TaskAnalyzer()
         self.planner = Planner()
         self.planner.set_memory(self.memory)
         self.executor = Executor()
         self.extractor = MemoryExtractor(self.memory)
-
-        # Callback để CommandBar hiển thị "📌 Đã ghi nhớ"
-        self.on_memory_saved: callable | None = None
+        self.on_memory_saved: Callable | None = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -53,13 +54,11 @@ class Agent:
         try:
             self.memory.save_message("user", user_input)
 
-            # Xử lý đặc biệt: xem / xoá bộ nhớ
             special = self._handle_special_queries(user_input)
             if special is not None:
                 self.memory.save_message("assistant", special)
                 return special
 
-            # Agent loop chính
             response = self._run_loop(user_input)
 
             self.memory.save_message("assistant", response)
@@ -90,47 +89,125 @@ class Agent:
     def _run_loop(self, goal: str) -> str:
         s = load_settings()
         max_steps = s.get("max_agent_steps", 10)
+        max_attempts = s.get("max_task_attempts", 3)
 
-        state = AgentState(goal=self._enrich_goal(goal))
+        # ── Task Analyzer: tách goal thành subtask list ────────────────────
+        plan = self.analyzer.analyze(goal)
+        state = AgentState(
+            goal=plan.goal,
+            tasks=[t.model_dump() for t in plan.tasks],
+        )
+        state.user_name = self._get_user_name()
+        log.info(
+            "[Agent] goal=%r | tasks=%d: %s",
+            plan.goal,
+            len(plan.tasks),
+            [t.task for t in plan.tasks],
+        )
+        # ──────────────────────────────────────────────────────────────────
 
         while state.step_count < max_steps:
+
+            # Tất cả tasks đã xong → planner tổng kết lần cuối
+            if state.has_tasks and state.all_tasks_done():
+                log.info("[Loop] Tất cả tasks done — yêu cầu finish")
+                break
+
             action = self.planner.plan_step(state)
             state.step_count += 1
 
             log.info(
-                "[Loop] step=%d/%d type=%s tool=%s",
+                "[Loop] step=%d/%d type=%s tool=%s task_idx=%s",
                 state.step_count, max_steps,
                 action.get("type"), action.get("tool", "–"),
+                state.current_task_index if state.has_tasks else "–",
             )
 
-            # Planner quyết định xong → trả kết quả
+            # ── Planner trả "finish" ──────────────────────────────────────
             if action.get("type") == "finish":
+                if state.has_tasks and not state.all_tasks_done():
+                    # Planner cho rằng task hiện tại xong
+                    state.mark_current_task_done()
+                    if state.all_tasks_done():
+                        return action.get("answer", "Xong.")
+                    # Còn tasks → tiếp tục loop, xoá observation cũ
+                    state.observation = ""
+                    continue
                 return action.get("answer", "Xong.")
 
-            # Thực thi tool
+            # ── Thực thi tool ─────────────────────────────────────────────
             result = self.executor.run_one(action)
             obs = self._make_observation(result)
-
             state.history.append({"action": action, "observation": obs})
             state.observation = obs
 
-        log.warning("[Loop] Vượt MAX_STEPS=%d", max_steps)
-        return "Tôi đã thử nhiều bước nhưng chưa hoàn thành được yêu cầu."
+            # ── Xử lý kết quả theo retryable + attempts ───────────────────
+            if result.get("success", True):
+                # Tool thành công → đánh dấu task done
+                if state.has_tasks:
+                    log.info(
+                        "[Loop] Task done: %r",
+                        state.current_task,
+                    )
+                    state.mark_current_task_done()
+                    state.observation = ""  # xoá obs cũ tránh nhiễu task sau
+
+            elif not result.get("retryable", True):
+                # Lỗi vĩnh viễn (app không tồn tại, invalid args...)
+                log.warning(
+                    "[Loop] Task failed (non-retryable): %r — %s",
+                    state.current_task, obs,
+                )
+                if state.has_tasks:
+                    state.mark_current_task_failed()
+                # Planner sẽ thấy observation lỗi và trả finish
+
+            else:
+                # Lỗi tạm thời (retryable=True) → tăng attempts
+                attempts = state.increment_task_attempts()
+                log.warning(
+                    "[Loop] Task retry %d/%d: %r",
+                    attempts, max_attempts, state.current_task,
+                )
+                if attempts >= max_attempts:
+                    log.warning(
+                        "[Loop] Task vượt MAX_ATTEMPTS=%d — đánh dấu failed",
+                        max_attempts,
+                    )
+                    if state.has_tasks:
+                        state.mark_current_task_failed()
+
+        # ── Hết loop: yêu cầu planner tổng kết ───────────────────────────
+        if state.step_count >= max_steps:
+            log.warning("[Loop] Vượt MAX_STEPS=%d", max_steps)
+            return "Tôi đã thử nhiều bước nhưng chưa hoàn thành được yêu cầu."
+
+        # Tất cả tasks done — inject summary để planner tổng kết chính xác hơn
+        if state.has_tasks:
+            done = [t["task"] for t in state.tasks if t["status"] == "done"]
+            failed = [t["task"] for t in state.tasks if t["status"] == "failed"]
+            parts: list[str] = []
+            if done:
+                parts.append("Completed: " + "; ".join(done))
+            if failed:
+                parts.append("Failed: " + "; ".join(failed))
+            if parts:
+                state.observation = " | ".join(parts)
+
+        action = self.planner.plan_step(state)
+        return action.get("answer", "Xong.")
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _enrich_goal(self, goal: str) -> str:
-        """Thêm tên người dùng vào goal nếu đã biết."""
+    def _get_user_name(self) -> str:
+        """Lấy tên người dùng từ profile, trả về chuỗi rỗng nếu chưa có."""
         try:
-            name = self.memory.get_user_profile().get("display_name", "")
-            if name:
-                return f"[User: {name}] {goal}"
+            return self.memory.get_user_profile().get("display_name", "")
         except Exception:
-            pass
-        return goal
+            return ""
 
     def _make_observation(self, result: dict) -> str:
-        """Chuyển tool result thành chuỗi observation ngắn."""
+        """Chuyển tool result thành chuỗi observation ngắn gọn."""
         msg = result.get("message", "")
         if not result.get("success", True):
             msg = f"FAILED: {msg}"

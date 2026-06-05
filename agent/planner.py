@@ -5,8 +5,6 @@ import json
 import re
 from typing import Any, Dict, Literal, Optional
 
-_USER_PREFIX_RE = re.compile(r"^\[User:[^\]]+\]\s*")
-
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from agent.config import load_prompt_file, load_settings
@@ -16,10 +14,12 @@ from agent.state import AgentState
 
 log = get_logger(__name__)
 
-_MAX_HISTORY = 3       # số bước gần nhất gửi cho LLM
-_OBS_IN_HIST = 150     # ký tự tối đa của observation trong history
-_MEM_MAX = 5
-_MIN_RELEVANCE = 0.3
+# ── Hằng số ───────────────────────────────────────────────────────────────────
+
+_MAX_HISTORY = 5    # số bước gần nhất gửi cho LLM
+_OBS_TRIM = 150     # ký tự tối đa của observation trong history / observation field
+_MEM_MAX = 5        # số memory items tối đa inject vào context
+_MIN_RELEVANCE = 0.5  # ngưỡng relevance score để inject memory (tăng từ 0.3)
 
 _STOPWORDS = {
     "tôi", "bạn", "là", "có", "và", "với", "của", "để", "cho",
@@ -53,7 +53,8 @@ class Planner:
 
     def __init__(self) -> None:
         self._llm: OllamaClient | None = None
-        self._memory = None  # được set bởi Agent sau khi khởi tạo
+        self._memory = None
+        self._prompt: str | None = None  # cache: load file một lần mỗi session
 
     def set_memory(self, memory) -> None:
         self._memory = memory
@@ -63,26 +64,34 @@ class Planner:
             self._llm = get_planner_llm()
         return self._llm
 
+    def _get_prompt(self) -> str:
+        """Load prompt file một lần, cache cho các bước tiếp theo."""
+        if self._prompt is None:
+            s = load_settings()
+            self._prompt = load_prompt_file(s["planner_prompt"])
+        return self._prompt
+
+    # ── Main ──────────────────────────────────────────────────────────────────
+
     def plan_step(self, state: AgentState) -> dict:
         """Trả về một action dict: {"type": "tool"|"finish", ...}"""
         log.debug("[Planner] step=%d goal=%r", state.step_count, state.goal[:60])
 
-        # ── Stuck detection: nếu bước vừa rồi lặp lại y hệt bước trước → dừng
+        # Stuck detection trước khi gọi LLM — tiết kiệm 1 inference call
         if self._is_stuck(state):
-            log.warning("[Planner] Stuck detected at step %d — aborting loop", state.step_count)
-            return {"type": "finish", "answer": "Tôi gặp vấn đề khi thực hiện yêu cầu. Vui lòng thử lại."}
+            log.warning("[Planner] Stuck tại step %d — dừng loop", state.step_count)
+            return {
+                "type": "finish",
+                "answer": "Tôi gặp khó khăn khi xử lý yêu cầu. Vui lòng thử diễn đạt lại.",
+            }
 
         try:
             s = load_settings()
-            prompt = load_prompt_file(s["planner_prompt"])
-            user_msg = self._build_message(state)
-            # caveman_mode KHÔNG áp dụng cho Planner: prefix "Respond terse..."
-            # xung đột với JSON schema và làm confused small model.
             text = self._get_llm().generate(
-                prompt,
-                user_msg,
+                self._get_prompt(),
+                self._build_message(state),
                 num_predict=s.get("num_predict_planner", 256),
-                caveman=False,
+                caveman=False,   # caveman prefix xung đột với JSON schema
                 json_mode=True,
             )
             log.debug("[Planner] raw: %r", text)
@@ -95,13 +104,11 @@ class Planner:
 
         return {"type": "finish", "answer": "Xin lỗi, tôi không hiểu yêu cầu."}
 
-    # ── Build context message ─────────────────────────────────────────────────
-
     # ── Stuck detection ───────────────────────────────────────────────────────
 
     @staticmethod
     def _is_stuck(state: AgentState) -> bool:
-        """Trả True nếu 2 bước gần nhất thực hiện cùng tool + args."""
+        """True nếu 2 bước gần nhất thực hiện cùng tool + args."""
         if len(state.history) < 2:
             return False
         last = state.history[-1]["action"]
@@ -118,18 +125,20 @@ class Planner:
     def _build_message(self, state: AgentState) -> str:
         parts: list[str] = []
 
-        # Strip [User: Name] prefix — chỉ dùng để enrich goal, không nên
-        # gửi cho LLM vì có thể gây nhầm lẫn (model nhỏ bám vào token lạ).
-        clean_goal = _USER_PREFIX_RE.sub("", state.goal).strip()
-
-        # Memory context — chỉ inject ở bước đầu tiên để tiết kiệm token
+        # Bước đầu tiên: inject user name + memory context (chỉ một lần)
         if not state.history:
-            mem = self._get_memory_context(clean_goal)
+            if state.user_name:
+                parts.append(f"User: {state.user_name}")
+            mem = self._get_memory_context(state.goal)
             if mem:
                 parts.append(f"[Mem]\n{mem}")
 
-        # Goal
-        parts.append(f"Goal: {clean_goal}")
+        # Goal — luôn là chuỗi sạch, không prefix
+        parts.append(f"Goal: {state.goal}")
+
+        # Current Task — chỉ inject khi Task Analyzer mode đang hoạt động
+        if state.has_tasks and state.current_task:
+            parts.append(f"Current Task: {state.current_task}")
 
         # History (last N steps)
         if state.history:
@@ -137,11 +146,12 @@ class Planner:
             lines: list[str] = []
             for h in recent:
                 act = h["action"]
-                obs = str(h["observation"])
-                if len(obs) > _OBS_IN_HIST:
-                    obs = obs[:_OBS_IN_HIST] + "…"
+                obs = _trim(str(h["observation"]), _OBS_TRIM)
                 if act.get("type") == "tool":
-                    act_str = f"{act['tool']}({json.dumps(act.get('args', {}), ensure_ascii=False)})"
+                    act_str = (
+                        f"{act['tool']}"
+                        f"({json.dumps(act.get('args', {}), ensure_ascii=False)})"
+                    )
                 else:
                     act_str = "finish"
                 lines.append(f"- {act_str} → {obs}")
@@ -149,10 +159,7 @@ class Planner:
 
         # Observation hiện tại
         if state.observation:
-            obs = state.observation
-            if len(obs) > _OBS_IN_HIST:
-                obs = obs[:_OBS_IN_HIST] + "…"
-            parts.append(f"Observation: {obs}")
+            parts.append(f"Observation: {_trim(state.observation, _OBS_TRIM)}")
 
         return "\n\n".join(parts)
 
@@ -189,6 +196,10 @@ class Planner:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _trim(text: str, max_len: int) -> str:
+    return text if len(text) <= max_len else text[:max_len] + "…"
+
+
 def _extract_keywords(text: str) -> list[str]:
-    words = re.findall(r"[^\s,.\!\?\:;\"\']+", text.lower())
+    words = re.findall(r"[^\s,.\!\?\:;\"\'()\[\]{}]+", text.lower())
     return [w for w in words if len(w) > 2 and w not in _STOPWORDS]

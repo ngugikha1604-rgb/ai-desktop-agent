@@ -193,9 +193,11 @@ Ctrl+Alt+J / Ctrl+Alt+V
         ▼
    Agent.run()
     ├─► Memory (SQLite)
-    ├─► Planner ──► OllamaClient (qwen2.5:3b)
+    ├─► Planner ────► OllamaClient (qwen2.5:3b)
     │              inject long_term_memory context
     │              → JSON plan
+    ├─► TaskAnalyzer ► fast-path: không gọi LLM nếu lệnh đơn giản
+    │                └► OllamaClient (qwen2.5:0.5b) → multi-task JSON plan
     ├─► Executor ──► TOOL_REGISTRY (16 tools)
     ├─► ResponseFormatter ──► OllamaClient (qwen2.5:0.5b)
     └─► MemoryExtractor (background thread)

@@ -164,6 +164,20 @@ def get_planner_llm() -> OllamaClient:
     return OllamaClient(model=model, base_url=base_url)
 
 
+def get_analyzer_llm() -> OllamaClient:
+    """LLM cho Task Analyzer.
+
+    Dùng 'analyzer_model' nếu được cấu hình riêng,
+    fallback về 'planner_model' (qwen2.5:3b) nếu không.
+    Thiết kế này cho phép tách model về sau mà không cần đổi code.
+    """
+    s = load_settings()
+    base_url = s.get("ollama_base_url", _OLLAMA_BASE)
+    model = s.get("analyzer_model") or s.get("planner_model", "qwen2.5:3b")
+    _check_ollama(base_url, model)
+    return OllamaClient(model=model, base_url=base_url)
+
+
 def get_response_llm() -> OllamaClient:
     s = load_settings()
     base_url = s.get("ollama_base_url", _OLLAMA_BASE)

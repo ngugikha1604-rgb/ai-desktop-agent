@@ -103,4 +103,5 @@ def open_app(app_name: str) -> dict:
     return fail(
         f"Không mở được '{app_name}'. Đã thử: {', '.join(tried) or app_name}.",
         None,
+        retryable=False,  # app không tồn tại → không retry
     )
