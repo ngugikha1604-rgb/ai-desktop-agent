@@ -133,7 +133,7 @@ ai-desktop-agent/
 │   └── logger.py                # Logging → logs/agent.log
 │
 ├── tools/
-│   ├── __init__.py              # TOOL_REGISTRY (16 tools)
+│   ├── __init__.py              # TOOL_REGISTRY (Dynamic Registry)
 │   ├── open_app.py
 │   ├── kill_process.py
 │   ├── search_file.py
@@ -237,18 +237,3 @@ Ctrl+Alt+J / Ctrl+Alt+V
 | System APIs | pywin32, psutil |
 | Browser control | pyautogui |
 | Screenshot | Pillow |
-
----
-
-## Roadmap
-
-- [x] Phase 1 — MVP: mở app, system info, chạy lệnh
-- [x] Phase 2 — File management
-- [x] Phase 3 — Chat history (SQLite)
-- [x] Phase 4 — Multi-step planning
-- [x] Phase 5 — Tool registry (13 tools)
-- [x] Phase 6 — Desktop UX: floating bar, hotkey, tray
-- [x] Phase 7 — Local LLM (Ollama / Qwen2.5)
-- [x] Phase 8 — Long-term memory & user profile
-- [x] Phase 9 — Voice input (faster-whisper)
-- [x] Phase 10 — Browser automation

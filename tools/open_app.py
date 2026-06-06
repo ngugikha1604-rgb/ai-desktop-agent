@@ -1,8 +1,13 @@
+import glob
 import os
 import shutil
 import subprocess
 
+from tools.browser_utils import BROWSER_DISPLAY, bring_browser_to_foreground, get_running_browser
 from tools.result import fail, ok
+
+# Tên key nào là trình duyệt — xử lý đặc biệt khi đã chạy
+_BROWSER_KEYS: set[str] = {"chrome", "edge", "firefox"}
 
 # alias → danh sách lệnh/đường dẫn thử lần lượt
 _APP_CANDIDATES: dict[str, list[str]] = {
@@ -39,12 +44,24 @@ _APP_CANDIDATES: dict[str, list[str]] = {
     "cmd": ["cmd"],
     "powershell": ["powershell"],
     "terminal": ["wt", "wt.exe"],
-    "discord": [
-        "discord",
-        r"%LOCALAPPDATA%\Discord\Update.exe",
-    ],
     "spotify": ["spotify"],
 }
+
+
+def _resolve_discord() -> str | None:
+    """Tìm Discord.exe qua glob vì version folder thay đổi sau mỗi update.
+
+    Ví dụ: %LOCALAPPDATA%\\Discord\\app-1.0.9170\\Discord.exe
+    Trả về path của version mới nhất, hoặc None nếu không tìm thấy.
+    """
+    local = os.environ.get("LOCALAPPDATA", "")
+    if not local:
+        return None
+    matches = sorted(
+        glob.glob(os.path.join(local, "Discord", "app-*", "Discord.exe")),
+        reverse=True,  # version mới nhất trước (sort theo tên desc)
+    )
+    return matches[0] if matches else None
 
 
 def _expand(path: str) -> str:
@@ -73,7 +90,7 @@ def _launch(path: str) -> bool:
         if path.lower().endswith((".cmd", ".bat")):
             subprocess.Popen([path], shell=False, close_fds=True)
         else:
-            os.startfile(path)  # noqa: S606 — desktop agent mở app trên Windows
+            os.startfile(path)  # noqa: S606
         return True
     except OSError:
         try:
@@ -87,6 +104,38 @@ def open_app(app_name: str) -> dict:
     key = (app_name or "").strip().lower()
     if not key:
         return fail("Tên ứng dụng trống.")
+
+    # Trình duyệt đã chạy → đưa lên foreground, không mở instance mới
+    if key in _BROWSER_KEYS:
+        running = get_running_browser()
+        if running:
+            display = BROWSER_DISPLAY.get(running, key.capitalize())
+            brought = bring_browser_to_foreground()
+            msg = (
+                f"{display} đã đang chạy — đã đưa lên foreground."
+                if brought
+                else f"{display} đã đang chạy."
+            )
+            return ok(msg, {"already_running": True, "browser": running})
+
+    # Discord: resolve path đúng qua glob thay vì hardcode Update.exe
+    if key == "discord":
+        discord_path = _resolve_discord()
+        if discord_path:
+            try:
+                subprocess.Popen([discord_path], close_fds=True)
+                return ok("Đã mở Discord.", {"path": discord_path})
+            except Exception as e:
+                return fail(f"Không thể mở Discord: {e}")
+        # Fallback: thử shutil.which
+        found = shutil.which("Discord") or shutil.which("discord")
+        if found:
+            try:
+                subprocess.Popen([found], close_fds=True)
+                return ok("Đã mở Discord.", {"path": found})
+            except Exception as e:
+                return fail(f"Không thể mở Discord: {e}")
+        return fail("Không tìm thấy Discord. Hãy chắc chắn Discord đã được cài đặt.")
 
     candidates = _APP_CANDIDATES.get(key, [app_name.strip()])
     tried: list[str] = []
@@ -103,5 +152,5 @@ def open_app(app_name: str) -> dict:
     return fail(
         f"Không mở được '{app_name}'. Đã thử: {', '.join(tried) or app_name}.",
         None,
-        retryable=False,  # app không tồn tại → không retry
+        retryable=False,
     )

@@ -20,7 +20,7 @@ def open_url(url: str) -> dict:
         url = "https://" + url
 
     try:
-        webbrowser.open(url)
+        webbrowser.open(url, new=2)  # new=2: ưu tiên tab mới trong browser đang mở
         return ok(f"Đã mở: {url}", {"url": url})
     except OSError as e:
         return fail(f"Không thể mở trình duyệt: {e}", None)

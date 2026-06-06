@@ -11,6 +11,7 @@ from agent.config import load_prompt_file, load_settings
 from agent.llm import OllamaClient, get_planner_llm
 from agent.logger import get_logger
 from agent.state import AgentState
+from tools.registry import build_prompt_section
 
 log = get_logger(__name__)
 
@@ -68,7 +69,8 @@ class Planner:
         """Load prompt file một lần, cache cho các bước tiếp theo."""
         if self._prompt is None:
             s = load_settings()
-            self._prompt = load_prompt_file(s["planner_prompt"])
+            prompt = load_prompt_file(s["planner_prompt"])
+            self._prompt = prompt.replace("{tool_docs}", build_prompt_section())
         return self._prompt
 
     # ── Main ──────────────────────────────────────────────────────────────────

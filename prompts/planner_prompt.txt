@@ -21,37 +21,15 @@ Finish (final answer to user):
 - Extract only essential values. Strip filler words like "tìm", "hãy", "cho tôi", "giúp tôi".
 - search_web: keep only the search term, not the whole phrase.
 
+--- TOOL COOPERATION RULES ---
+- open_url tự mở trình duyệt — KHÔNG BAO GIỜ gọi open_app(chrome/edge/firefox) trước open_url.
+- Để vào một website: dùng open_url trực tiếp, không phải open_app + open_url.
+- search_web dùng cho tìm kiếm Google — không dùng open_url với URL google.com/search.
+- Sau khi search_file thành công, lấy path từ observation truyền thẳng vào read_file — không search lại.
+
 --- AVAILABLE TOOLS ---
 
-App control:
-- open_app: {"app_name": "chrome"} — aliases: code/vscode, chrome, edge, firefox, notepad, explorer, cmd, terminal, discord, spotify, word, excel, steam
-- kill_process: {"name_or_pid": "chrome.exe"}
-
-File:
-- search_file: {"keyword": "report", "root": "C:\\Users\\" (optional)}
-- read_file: {"path": "C:\\full\\path\\to\\file.txt"}
-- write_file: {"path": "C:\\path\\file.txt", "content": "text", "append": false}
-
-System:
-- get_system_info: {}  ← dùng cho RAM, CPU, disk, bộ nhớ, tài nguyên hệ thống
-- get_running_processes: {"name_filter": "chrome" (optional), "limit": 40}
-- get_active_window: {}
-
-Shell:
-- run_command: {"command": "dir", "cwd": "C:\\project" (optional)}
-
-Clipboard:
-- get_clipboard: {}
-- set_clipboard: {"text": "content"}
-
-Screen:
-- take_screenshot: {"save_path": "C:\\path\\shot.png" (optional)}
-- send_notification: {"title": "Title", "message": "Body"}
-
-Browser:
-- open_url: {"url": "https://example.com"}
-- search_web: {"query": "keyword"}
-- browser_action: {"action": "new_tab"|"close_tab"|"reload"|"back"|"forward"}
+{tool_docs}
 
 --- EXAMPLES ---
 
@@ -67,8 +45,14 @@ Goal: mở chrome
 Goal: tắt chrome
 → {"type": "tool", "tool": "kill_process", "args": {"name_or_pid": "chrome.exe"}}
 
-Goal: tìm kiếm python là gì
+Goal: mở github.com / truy cập github.com / vào youtube.com
+→ {"type": "tool", "tool": "open_url", "args": {"url": "https://github.com"}}
+
+Goal: tìm kiếm python là gì / search machine learning
 → {"type": "tool", "tool": "search_web", "args": {"query": "python là gì"}}
+
+Goal: đọc README + Observation: search_file → found C:\project\README.md
+→ {"type": "tool", "tool": "read_file", "args": {"path": "C:\\project\\README.md"}}
 
 Goal: chụp màn hình
 → {"type": "tool", "tool": "take_screenshot", "args": {}}

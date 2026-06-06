@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import time
 
+from tools.browser_utils import bring_browser_to_foreground, find_browser_hwnd
 from tools.result import fail, ok
-
-SUPPORTED_BROWSERS = ["chrome.exe", "msedge.exe", "firefox.exe"]
 
 # action → pyautogui hotkey args
 _ACTION_HOTKEYS: dict[str, tuple[str, ...]] = {
@@ -31,22 +30,18 @@ def browser_action(action: str) -> dict:
     action: "new_tab" | "close_tab" | "reload" | "back" | "forward"
     """
     if action not in _ACTION_HOTKEYS:
-        return fail(f"Hành động không hợp lệ: {action}", None)
+        return fail(f"Hành động không hợp lệ: {action!r}. "
+                    f"Chọn một trong: {', '.join(_ACTION_HOTKEYS)}")
 
     try:
-        import psutil
         import pyautogui
-        import win32gui
     except ImportError as e:
-        return fail(
-            f"Thiếu thư viện: {e}. Cài bằng: pip install psutil pyautogui pywin32",
-            None,
-        )
+        return fail(f"Thiếu thư viện: {e}. Cài bằng: pip install pyautogui")
 
-    # 1. Tìm cửa sổ trình duyệt
-    hwnd = _find_browser_hwnd()
+    # 1. Tìm cửa sổ trình duyệt (dùng shared util)
+    hwnd = find_browser_hwnd()
 
-    # 2. Không có trình duyệt mở → mở trước
+    # 2. Không có trình duyệt mở → mở trước rồi chờ
     if hwnd is None:
         from tools.browser import open_url
         result = open_url("about:blank")
@@ -54,52 +49,19 @@ def browser_action(action: str) -> dict:
             return fail("Không thể mở trình duyệt.")
         for _ in range(30):          # chờ tối đa 3 giây
             time.sleep(0.1)
-            hwnd = _find_browser_hwnd()
+            hwnd = find_browser_hwnd()
             if hwnd:
                 break
         if hwnd is None:
             return fail("Không tìm thấy cửa sổ trình duyệt sau khi mở.")
 
-    # 3. Đưa focus về trình duyệt
-    try:
-        win32gui.SetForegroundWindow(hwnd)
-        time.sleep(0.15)
-    except Exception:
-        pass
+    # 3. Đưa focus về trình duyệt (dùng shared util)
+    bring_browser_to_foreground()
 
     # 4. Gửi phím tắt
     try:
         pyautogui.hotkey(*_ACTION_HOTKEYS[action])
     except Exception as e:
-        return fail(f"Không thể gửi phím tắt: {e}", None)
+        return fail(f"Không thể gửi phím tắt: {e}")
 
     return ok(f"Đã {_ACTION_LABELS.get(action, action)}.", {"action": action})
-
-
-def _find_browser_hwnd() -> int | None:
-    """Tìm hwnd của cửa sổ trình duyệt được hỗ trợ.
-    Ưu tiên cửa sổ foreground nếu đang là trình duyệt.
-    """
-    try:
-        import psutil
-        import win32gui
-
-        found: list[int] = []
-
-        def _cb(hwnd, _):
-            if not win32gui.IsWindowVisible(hwnd):
-                return
-            try:
-                _, pid = win32gui.GetWindowThreadProcessId(hwnd)
-                if psutil.Process(pid).name().lower() in SUPPORTED_BROWSERS:
-                    found.append(hwnd)
-            except Exception:
-                pass
-
-        win32gui.EnumWindows(_cb, None)
-        fg = win32gui.GetForegroundWindow()
-        if fg in found:
-            return fg
-        return found[0] if found else None
-    except Exception:
-        return None
