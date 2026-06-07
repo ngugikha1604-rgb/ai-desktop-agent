@@ -20,9 +20,11 @@ class ToolSpec:
     name: str
     fn: Callable
     description: str
+    category: str
     when_to_use: str
     returns: str
     args: dict[str, str]           # arg_name → "type, required/optional — mô tả"
+    preconditions: list[str] = field(default_factory=list)
     examples: list[dict] = field(default_factory=list)
     # example shape: {"user": "...", "call": {"tool": "...", "args": {...}}}
 
@@ -54,6 +56,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="open_app",
         fn=open_app,
+        category="app",
         description="Open an installed application by name or alias.",
         when_to_use="User wants to launch a program (Chrome, VS Code, Notepad, Spotify, Discord...).",
         returns="Confirmation message with resolved path.",
@@ -69,6 +72,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="kill_process",
         fn=kill_process,
+        category="app",
         description="Terminate a running process by name or PID.",
         when_to_use="User wants to close/kill/stop a running program.",
         returns="Confirmation with PID of terminated process.",
@@ -86,6 +90,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="search_file",
         fn=search_file,
+        category="filesystem",
         description="Search for files by filename keyword, starting from an optional root directory.",
         when_to_use=(
             "User wants to find/locate a file by name. "
@@ -105,6 +110,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="read_file",
         fn=read_file,
+        category="filesystem",
         description="Read and return the text content of a file given its full path.",
         when_to_use=(
             "User wants to see/read the content of a file and the full path is known. "
@@ -114,6 +120,7 @@ _SPECS: list[ToolSpec] = [
         args={
             "path": "string, required — Absolute path to the file (e.g. C:\\Users\\user\\notes.txt).",
         },
+        preconditions=["search_file"],
         examples=[
             {"user": "đọc file C:\\project\\README.md", "call": {"tool": "read_file", "args": {"path": "C:\\project\\README.md"}}},
         ],
@@ -122,6 +129,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="write_file",
         fn=write_file,
+        category="filesystem",
         description="Write or append text content to a file at the given path.",
         when_to_use="User wants to create a new file, overwrite a file, or append text to an existing file.",
         returns="Confirmation that the file was written successfully.",
@@ -140,6 +148,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="get_system_info",
         fn=get_system_info,
+        category="system",
         description="Get current system resource usage: RAM, CPU, and disk space.",
         when_to_use=(
             "User asks about RAM, memory, CPU usage, disk space, or general system performance. "
@@ -157,6 +166,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="get_running_processes",
         fn=get_running_processes,
+        category="system",
         description="List currently running processes, optionally filtered by name.",
         when_to_use=(
             "User wants to see which applications or processes are running. "
@@ -176,6 +186,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="get_active_window",
         fn=get_active_window,
+        category="system",
         description="Get information about the currently focused window.",
         when_to_use="User asks what window/application is currently active or in focus.",
         returns="Window title, process name, and PID of the focused window.",
@@ -191,6 +202,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="run_command",
         fn=run_command,
+        category="shell",
         description="Execute a shell command and return its output.",
         when_to_use="User wants to run a terminal/shell command (dir, ipconfig, ping, git, etc.).",
         returns="Stdout/stderr output of the command.",
@@ -209,6 +221,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="get_clipboard",
         fn=get_clipboard,
+        category="clipboard",
         description="Read the current text content from the clipboard.",
         when_to_use="User asks what is in the clipboard, or wants to see copied text.",
         returns="Text currently in the clipboard.",
@@ -221,6 +234,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="set_clipboard",
         fn=set_clipboard,
+        category="clipboard",
         description="Write text to the clipboard.",
         when_to_use="User wants to copy/put specific text into the clipboard.",
         returns="Confirmation that text was copied to clipboard.",
@@ -237,6 +251,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="take_screenshot",
         fn=take_screenshot,
+        category="screen",
         description="Take a screenshot of the current screen.",
         when_to_use="User wants to capture/screenshot the screen.",
         returns="Confirmation with saved path of the screenshot file.",
@@ -251,6 +266,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="send_notification",
         fn=send_notification,
+        category="notification",
         description="Send a Windows desktop notification (toast message).",
         when_to_use="User wants to send or show a Windows notification/alert.",
         returns="Confirmation that notification was sent.",
@@ -268,6 +284,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="open_url",
         fn=open_url,
+        category="browser",
         description="Open a URL in the default browser. Automatically launches the browser if not running.",
         when_to_use=(
             "User wants to visit a website or URL. "
@@ -286,6 +303,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="search_web",
         fn=search_web,
+        category="browser",
         description="Search Google with a query and open results in the browser.",
         when_to_use=(
             "User wants to search for information on Google. "
@@ -304,6 +322,7 @@ _SPECS: list[ToolSpec] = [
     ToolSpec(
         name="browser_action",
         fn=browser_action,
+        category="browser",
         description="Control the active browser tab (open new tab, close tab, reload, navigate back/forward).",
         when_to_use="User wants to control browser tabs or navigation (new tab, close tab, refresh, go back/forward).",
         returns="Confirmation of the browser action performed.",
@@ -330,12 +349,13 @@ def build_prompt_section() -> str:
     """Sinh đoạn AVAILABLE TOOLS cho planner prompt từ registry.
 
     Format mỗi tool:
-        open_app
+        open_app (Category: app)
           Description: ...
           Use when: ...
           Returns: ...
           Args:
             app_name (string, required) — ...
+          Preconditions: ...
           Example:
             User: "mở chrome"
             → {"type": "tool", "tool": "open_app", "args": {"app_name": "chrome"}}
@@ -345,7 +365,7 @@ def build_prompt_section() -> str:
     separator = "─" * 40
 
     for spec in _SPECS:
-        lines.append(spec.name)
+        lines.append(f"{spec.name} (Category: {spec.category})")
         lines.append(f"  Description: {spec.description}")
         lines.append(f"  Use when: {spec.when_to_use}")
         lines.append(f"  Returns: {spec.returns}")
@@ -356,6 +376,9 @@ def build_prompt_section() -> str:
                 lines.append(f"    {arg_name} — {arg_desc}")
         else:
             lines.append("  Args: (none)")
+
+        if spec.preconditions:
+            lines.append(f"  Preconditions: {', '.join(spec.preconditions)}")
 
         if spec.examples:
             ex = spec.examples[0]  # chỉ lấy example đầu để giữ prompt ngắn
