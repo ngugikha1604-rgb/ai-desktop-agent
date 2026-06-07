@@ -35,9 +35,16 @@ class AgentState:
 
     @property
     def current_task(self) -> str | None:
-        """Task hiện tại đang xử lý, hoặc None nếu hết / không có tasks."""
+        """Tên task hiện tại (string), hoặc None nếu hết / không có tasks."""
         if self.tasks and self.current_task_index < len(self.tasks):
             return self.tasks[self.current_task_index]["task"]
+        return None
+
+    @property
+    def current_task_dict(self) -> dict | None:
+        """Dict đầy đủ của task hiện tại (task, type, hint, requires, expected_output...)."""
+        if self.tasks and self.current_task_index < len(self.tasks):
+            return self.tasks[self.current_task_index]
         return None
 
     @property

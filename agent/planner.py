@@ -138,9 +138,18 @@ class Planner:
         # Goal — luôn là chuỗi sạch, không prefix
         parts.append(f"Goal: {state.goal}")
 
-        # Current Task — chỉ inject khi Task Analyzer mode đang hoạt động
-        if state.has_tasks and state.current_task:
-            parts.append(f"Current Task: {state.current_task}")
+        # Current Task — dùng dict đầy đủ để inject hint / requires / expected_output
+        if state.has_tasks:
+            task = state.current_task_dict
+            if task:
+                lines = [f"Current Task: {task['task']}"]
+                if task.get("hint"):
+                    lines.append(f"  Hint: {task['hint']}")
+                if task.get("requires"):
+                    lines.append(f"  Requires: {', '.join(task['requires'])}")
+                if task.get("expected_output"):
+                    lines.append(f"  Expected output: {task['expected_output']}")
+                parts.append("\n".join(lines))
 
         # History (last N steps)
         if state.history:

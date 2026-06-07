@@ -14,7 +14,7 @@ from agent.logger import get_logger
 log = get_logger(__name__)
 
 _MAX_TASKS = 8
-_PROMPT_PLACEHOLDER = '"{user_input}"'  # đánh dấu cuối system prompt trong file
+_PROMPT_PLACEHOLDER = '"{user_input}"'
 
 # Từ nối multi-step rõ ràng — nếu không có → fast-path, bỏ qua LLM
 _MULTI_STEP_RE = re.compile(
@@ -28,6 +28,20 @@ _MULTI_STEP_RE = re.compile(
 
 class SubTask(BaseModel):
     task: str
+
+    # Loại hành động — giúp planner hiểu ngữ cảnh
+    type: Literal["action", "search", "read", "process", "communicate"] = "action"
+
+    # Gợi ý tool nào nên dùng — tác động lớn nhất đến chất lượng Qwen 3B
+    hint: str = ""
+
+    # Dữ liệu đầu vào cần có — planner biết phải lấy từ task trước
+    requires: list[str] = Field(default_factory=list)
+
+    # Kết quả kỳ vọng — planner biết khi nào task được coi là xong
+    expected_output: str = ""
+
+    # Runtime state (không do LLM sinh ra)
     status: Literal["pending", "done", "failed"] = "pending"
     attempts: int = 0
 
@@ -38,6 +52,11 @@ class SubTask(BaseModel):
         if not v:
             raise ValueError("task không được để trống")
         return v
+
+    @field_validator("hint", "expected_output", mode="before")
+    @classmethod
+    def _strip_str(cls, v: object) -> object:
+        return v.strip() if isinstance(v, str) else v
 
 
 class TaskPlan(BaseModel):
@@ -55,8 +74,8 @@ class TaskPlan(BaseModel):
 class TaskAnalyzer:
     """Gọi LLM để tách user input thành TaskPlan (goal + subtask list).
 
-    Nếu LLM fail hoặc trả JSON lỗi → fallback về 1 task duy nhất
-    chứa nguyên văn user_input (backward compatible với hành vi cũ).
+    Fast-path: input không có từ nối multi-step → 1 task, không gọi LLM.
+    Fallback: LLM fail / JSON lỗi → 1 task fallback, không crash.
     """
 
     def __init__(self) -> None:
@@ -69,11 +88,6 @@ class TaskAnalyzer:
         return self._llm
 
     def _load_prompt(self) -> str:
-        """Load và cache system prompt một lần mỗi session.
-
-        Cắt dòng placeholder cuối file (nếu có) vì user message
-        luôn được build riêng: f'Input: "{user_input}"'.
-        """
         if self._prompt is None:
             s = load_settings()
             raw = load_prompt_file(s["analyzer_prompt"])
@@ -88,12 +102,7 @@ class TaskAnalyzer:
     # ── Public API ────────────────────────────────────────────────────────────
 
     def analyze(self, user_input: str) -> TaskPlan:
-        """Phân tích user_input → TaskPlan.
-
-        Fast-path: nếu không có từ nối multi-step (“rồi”, “sau đó”, “then”…)
-        → trả về 1-task plan ngay, không gọi LLM.
-        Luôn trả về TaskPlan hợp lệ (fallback nếu LLM / parse lỗi).
-        """
+        """Phân tích user_input → TaskPlan."""
         if not _MULTI_STEP_RE.search(user_input):
             log.debug("[TaskAnalyzer] Fast-path: không có từ nối multi-step")
             return self._fallback(user_input)
@@ -104,16 +113,16 @@ class TaskAnalyzer:
             raw = self._get_llm().generate(
                 self._load_prompt(),
                 f'Input: "{user_input}"',
-                num_predict=s.get("num_predict_analyzer", 256),
+                num_predict=s.get("num_predict_analyzer", 512),
                 caveman=False,
                 json_mode=True,
             )
             log.debug("[TaskAnalyzer] raw: %r", raw)
             plan = self._parse(raw)
             log.info(
-                "[TaskAnalyzer] goal=%r tasks=%d",
-                plan.goal,
-                len(plan.tasks),
+                "[TaskAnalyzer] goal=%r tasks=%d hint_count=%d",
+                plan.goal, len(plan.tasks),
+                sum(1 for t in plan.tasks if t.hint),
             )
             return plan
 
@@ -125,20 +134,16 @@ class TaskAnalyzer:
 
     @staticmethod
     def _parse(text: str) -> TaskPlan:
-        """Parse raw LLM text → TaskPlan. Raise nếu không hợp lệ."""
         cleaned = text.strip()
-
-        # Bóc JSON khỏi markdown fence nếu có
         fence = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
         if fence:
             cleaned = fence.group(1).strip()
-
         data = json.loads(cleaned)
         return TaskPlan.model_validate(data)
 
     @staticmethod
     def _fallback(user_input: str) -> TaskPlan:
-        """Fallback: 1 task = nguyên văn user_input."""
+        """1 task = nguyên văn user_input, không có metadata."""
         return TaskPlan(
             goal=user_input[:120],
             tasks=[SubTask(task=user_input[:200])],

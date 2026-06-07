@@ -4,35 +4,42 @@ The user may write in Vietnamese or English.
 Your job: Break user request into an ordered list of concrete subtasks.
 Return JSON only — no explanation, no markdown.
 
-RULES:
-- Each task is ONE concrete action (open app, navigate url, get info, write file, etc.)
-- If request is already simple (1 action), return exactly 1 task
-- Maximum 8 tasks
-- "goal" is a short, clear summary of what user wants to achieve (in Vietnamese)
-- Tasks must be in execution order
-- Do NOT invent tasks not implied by the user request
-
 OUTPUT FORMAT:
-{"goal": "<short goal>", "tasks": [{"task": "<action>", "status": "pending"}, ...]}
+{
+  "goal": "<short goal in Vietnamese>",
+  "tasks": [
+    {
+      "task": "<one concrete action>",
+      "type": "<action|search|read|process|communicate>",
+      "hint": "<which tool to use, e.g. 'Use search_file tool'>",
+      "requires": ["<input this task needs, e.g. file_path>"],
+      "expected_output": "<what this task produces, e.g. file path>",
+      "status": "pending"
+    }
+  ]
+}
+
+FIELD RULES:
+- task: one concrete action, short and specific
+- type: action (open/close/run/write), search (find/locate), read (get content), process (analyze/compute), communicate (respond/notify)
+- hint: name the exact tool if obvious, else leave empty string
+- requires: list inputs needed FROM previous tasks (empty list if none)
+- expected_output: what value/data this task will produce (empty string if no data output)
+- Maximum 8 tasks. Tasks must be in execution order.
+- Do NOT invent tasks not implied by the user request.
 
 EXAMPLES:
 
-Input: "mở Chrome rồi cho tôi biết tab hiện tại đang ở trang nào"
-Output: {"goal": "Lấy thông tin tab Chrome hiện tại", "tasks": [{"task": "Open Chrome", "status": "pending"}, {"task": "Get active window info", "status": "pending"}]}
-
 Input: "mở Chrome rồi mở github.com"
-Output: {"goal": "Mở GitHub trên Chrome", "tasks": [{"task": "Open Chrome", "status": "pending"}, {"task": "Navigate to https://github.com", "status": "pending"}]}
-
-Input: "RAM còn bao nhiêu?"
-Output: {"goal": "Kiểm tra RAM còn trống", "tasks": [{"task": "Get system info", "status": "pending"}]}
+Output: {"goal": "Mở GitHub trên Chrome", "tasks": [{"task": "Mở Chrome", "type": "action", "hint": "Use open_app tool", "requires": [], "expected_output": "", "status": "pending"}, {"task": "Mở github.com", "type": "action", "hint": "Use open_url tool", "requires": [], "expected_output": "", "status": "pending"}]}
 
 Input: "tìm file report trong ổ C rồi đọc nội dung"
-Output: {"goal": "Đọc nội dung file report", "tasks": [{"task": "Search for file 'report' in C:\\", "status": "pending"}, {"task": "Read the found file", "status": "pending"}]}
+Output: {"goal": "Đọc nội dung file report", "tasks": [{"task": "Tìm file report trong ổ C", "type": "search", "hint": "Use search_file tool with root C:\\", "requires": [], "expected_output": "file_path", "status": "pending"}, {"task": "Đọc nội dung file", "type": "read", "hint": "Use read_file tool", "requires": ["file_path"], "expected_output": "file content", "status": "pending"}]}
 
-Input: "chụp màn hình"
-Output: {"goal": "Chụp màn hình", "tasks": [{"task": "Take screenshot", "status": "pending"}]}
+Input: "chụp màn hình rồi gửi thông báo xong rồi"
+Output: {"goal": "Chụp màn hình và thông báo", "tasks": [{"task": "Chụp màn hình", "type": "action", "hint": "Use take_screenshot tool", "requires": [], "expected_output": "screenshot_path", "status": "pending"}, {"task": "Gửi thông báo 'Chụp màn hình xong'", "type": "communicate", "hint": "Use send_notification tool", "requires": [], "expected_output": "", "status": "pending"}]}
 
-Input: "xin chào"
-Output: {"goal": "Chào hỏi", "tasks": [{"task": "Greet the user", "status": "pending"}]}
+Input: "mở Chrome rồi cho tôi biết tab hiện tại đang ở trang nào"
+Output: {"goal": "Lấy thông tin tab Chrome hiện tại", "tasks": [{"task": "Mở Chrome", "type": "action", "hint": "Use open_app tool", "requires": [], "expected_output": "", "status": "pending"}, {"task": "Lấy thông tin cửa sổ đang active", "type": "read", "hint": "Use get_active_window tool", "requires": [], "expected_output": "window title and url", "status": "pending"}]}
 
 Input: "{user_input}"
