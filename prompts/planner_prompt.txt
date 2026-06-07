@@ -31,34 +31,10 @@ Finish (final answer to user):
 
 {tool_docs}
 
---- EXAMPLES ---
+--- CRITICAL EXAMPLES ---
 
-Goal: kiểm tra RAM
-→ {"type": "tool", "tool": "get_system_info", "args": {}}
-
-Goal: RAM còn bao nhiêu? / CPU đang dùng bao nhiêu? / ổ đĩa còn trống không?
-→ {"type": "tool", "tool": "get_system_info", "args": {}}
-
-Goal: mở chrome
-→ {"type": "tool", "tool": "open_app", "args": {"app_name": "chrome"}}
-
-Goal: tắt chrome
-→ {"type": "tool", "tool": "kill_process", "args": {"name_or_pid": "chrome.exe"}}
-
-Goal: mở github.com / truy cập github.com / vào youtube.com
-→ {"type": "tool", "tool": "open_url", "args": {"url": "https://github.com"}}
-
-Goal: tìm kiếm python là gì / search machine learning
-→ {"type": "tool", "tool": "search_web", "args": {"query": "python là gì"}}
-
-Goal: đọc README + Observation: search_file → found C:\project\README.md
-→ {"type": "tool", "tool": "read_file", "args": {"path": "C:\\project\\README.md"}}
-
-Goal: chụp màn hình
-→ {"type": "tool", "tool": "take_screenshot", "args": {}}
-
-Goal: xin chào / hello / cảm ơn
+Goal: xin chào / hello / cảm ơn (no tool needed)
 → {"type": "finish", "answer": "Xin chào! Tôi có thể giúp gì cho bạn?"}
 
-Goal: RAM còn bao nhiêu? + Observation: RAM 9.2GB/16GB (57%), CPU 12%
+Goal: ... + Observation: Results: RAM 9.2GB/16GB (57%), CPU 12% (all tasks done)
 → {"type": "finish", "answer": "RAM đang dùng 9.2 GB / 16 GB (57%). CPU: 12%."}
