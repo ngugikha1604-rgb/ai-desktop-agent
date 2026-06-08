@@ -345,51 +345,74 @@ def get_registry_dict() -> dict[str, Callable]:
     return {spec.name: spec.fn for spec in _SPECS}
 
 
-def build_prompt_section() -> str:
-    """Sinh đoạn AVAILABLE TOOLS cho planner prompt từ registry.
+def build_prompt_section(tool_names: list[str] | None = None) -> str:
+    """Sinh AVAILABLE TOOLS section — format compact, tiết kiệm ~70% token.
 
-    Format mỗi tool:
-        open_app (Category: app)
-          Description: ...
-          Use when: ...
-          Returns: ...
-          Args:
-            app_name (string, required) — ...
-          Preconditions: ...
-          Example:
-            User: "mở chrome"
-            → {"type": "tool", "tool": "open_app", "args": {"app_name": "chrome"}}
-        ────────────
+    Mỗi tool chiếm 3–4 dòng thay vì 12–15 dòng:
+        tool_name(arg1*, arg2)     (* = required)
+          Mô tả + bối cảnh dùng.
+          ⚑ DO NOT rule (nếu có).
+          → {"type":"tool","tool":"...","args":{...}}
+
+    Args:
+        tool_names: Nếu cung cấp, chỉ render các tool có tên trong list này.
+                    None = render toàn bộ (mặc định).
     """
-    lines: list[str] = []
-    separator = "─" * 40
+    specs = _SPECS if tool_names is None else [s for s in _SPECS if s.name in tool_names]
+    blocks: list[str] = []
 
-    for spec in _SPECS:
-        lines.append(f"{spec.name} (Category: {spec.category})")
-        lines.append(f"  Description: {spec.description}")
-        lines.append(f"  Use when: {spec.when_to_use}")
-        lines.append(f"  Returns: {spec.returns}")
+    for spec in specs:
+        lines: list[str] = []
 
+        # Dòng 1: signature — tên + args (* = required)
         if spec.args:
-            lines.append("  Args:")
-            for arg_name, arg_desc in spec.args.items():
-                lines.append(f"    {arg_name} — {arg_desc}")
+            sig_parts = [
+                f"{k}*" if "required" in v else k
+                for k, v in spec.args.items()
+            ]
+            lines.append(f"{spec.name}({', '.join(sig_parts)})")
         else:
-            lines.append("  Args: (none)")
+            lines.append(f"{spec.name}()")
 
+        # Dòng 2: description + câu đầu of when_to_use (bỏ các câu DO NOT)
+        desc = spec.description.rstrip(".")
+        wtu_sentences = [s.strip() for s in spec.when_to_use.split(".") if s.strip()]
+        first_wtu = next(
+            (s for s in wtu_sentences if "NOT" not in s and "NEVER" not in s), ""
+        )
+        if first_wtu and first_wtu.lower() not in desc.lower():
+            summary = f"{desc}. {first_wtu}."
+        else:
+            summary = f"{desc}."
+        lines.append(f"  {summary[:140]}")
+
+        # Dòng 3 (tùy chọn): rule DO NOT / disambiguation quan trọng nhất
+        do_not = next(
+            (s.strip() for s in wtu_sentences if "NOT" in s or "NEVER" in s),
+            None,
+        )
+        if do_not:
+            lines.append(f"  \u26d1 {do_not}.")
+
+        # Dòng 4 (tùy chọn): preconditions
         if spec.preconditions:
-            lines.append(f"  Preconditions: {', '.join(spec.preconditions)}")
+            lines.append(f"  Requires: {', '.join(spec.preconditions)} to run first.")
 
+        # Dòng cuối: ví dụ compact (JSON không khoảng trắng thừa)
         if spec.examples:
-            ex = spec.examples[0]  # chỉ lấy example đầu để giữ prompt ngắn
+            ex = spec.examples[0]
             call_json = json.dumps(
                 {"type": "tool", **ex["call"]},
                 ensure_ascii=False,
+                separators=(",", ":"),
             )
-            lines.append(f'  Example:')
-            lines.append(f'    User: "{ex["user"]}"')
-            lines.append(f'    → {call_json}')
+            lines.append(f"  \u2192 {call_json}")
 
-        lines.append(separator)
+        blocks.append("\n".join(lines))
 
-    return "\n".join(lines)
+    return "\n\n".join(blocks)
+
+
+# Sinh một lần tại import time — tránh rebuild mỗi lần Planner khởi tạo.
+# Nếu thêm tool mới, restart app để PROMPT_SECTION cập nhật.
+PROMPT_SECTION: str = build_prompt_section()

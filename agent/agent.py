@@ -1,7 +1,9 @@
 """Agent — điều phối Agent Loop: Planner → Tool → Observation → repeat."""
 from __future__ import annotations
 
+import json
 import re
+import time
 from typing import Callable
 
 from agent.config import load_settings
@@ -20,7 +22,12 @@ from agent.task_analyzer import TaskAnalyzer
 
 log = get_logger(__name__)
 
-_OBS_MAX = 400  # ký tự tối đa của observation lưu vào state
+_OBS_MAX   = 400   # ký tự tối đa của observation lưu vào state
+_OBS_LOG   = 120   # ký tự tối đa khi in observation ra log
+
+# Visual separators — dùng lại nhiều chỗ
+_SEP  = "═" * 54          # phân cách giữa các request
+_STEP = "  ┄ " + "─" * 46 # phân cách giữa các step trong loop
 
 _REMEMBER_PATTERNS = [
     r"bạn (còn )?nhớ gì (về tôi|về mình)",
@@ -39,24 +46,29 @@ _FORGET_PATTERNS = [
 
 class Agent:
     def __init__(self) -> None:
-        self.memory = Memory()
-        self.analyzer = TaskAnalyzer()
-        self.planner = Planner()
+        self.memory    = Memory()
+        self.analyzer  = TaskAnalyzer()
+        self.planner   = Planner()
         self.planner.set_memory(self.memory)
-        self.executor = Executor()
+        self.executor  = Executor()
         self.extractor = MemoryExtractor(self.memory)
         self.on_memory_saved: Callable | None = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def run(self, user_input: str) -> str:
-        log.debug("[Agent] Input: %r", user_input)
+        t0 = time.perf_counter()
+
+        log.info(_SEP)
+        log.info('▶  "%s"', user_input)
+
         try:
             self.memory.save_message("user", user_input)
 
             special = self._handle_special_queries(user_input)
             if special is not None:
                 self.memory.save_message("assistant", special)
+                self._log_done(t0)
                 return special
 
             response = self._run_loop(user_input)
@@ -66,148 +78,181 @@ class Agent:
                 user_input, response,
                 on_saved=self._on_memory_saved_callback,
             )
+            self._log_done(t0)
             return response
 
         except OllamaConnectionError:
+            log.warning("  ✗  Ollama chưa chạy")
+            self._log_done(t0, ok=False)
             return (
                 "Ollama chưa chạy. Hãy mở terminal và chạy:\n"
                 "`ollama serve`"
             )
         except OllamaModelNotFoundError as e:
+            log.warning("  ✗  Model '%s' chưa tải về", e.model)
+            self._log_done(t0, ok=False)
             return (
                 f"Model '{e.model}' chưa được tải về.\n"
                 f"Hãy chạy: `ollama pull {e.model}`"
             )
         except OllamaServerError:
+            log.warning("  ✗  Ollama server error")
+            self._log_done(t0, ok=False)
             return "Ollama gặp lỗi. Vui lòng thử lại."
         except Exception as e:
-            log.warning("[Agent] Lỗi không xác định: %s", e)
+            log.warning("  ✗  Lỗi không xác định: %s", e)
+            self._log_done(t0, ok=False)
             raise
 
     # ── Agent Loop ────────────────────────────────────────────────────────────
 
     def _run_loop(self, goal: str) -> str:
-        s = load_settings()
-        max_steps = s.get("max_agent_steps", 10)
+        s           = load_settings()
+        max_steps   = s.get("max_agent_steps", 10)
         max_attempts = s.get("max_task_attempts", 3)
 
-        plan = self.analyzer.analyze(goal)
+        # ── Task analysis ─────────────────────────────────────────────────
+        plan  = self.analyzer.analyze(goal)
         state = AgentState(
             goal=plan.goal,
             tasks=[t.model_dump() for t in plan.tasks],
         )
         state.user_name = self._get_user_name()
-        log.info(
-            "[Agent] goal=%r | tasks=%d: %s",
-            plan.goal, len(plan.tasks),
-            [t.task for t in plan.tasks],
-        )
 
+        task_names = [t.task for t in plan.tasks]
+        log.info("  \u26a1  analyze   %d task(s): %s", len(plan.tasks), task_names)
+
+        # ── Main loop ─────────────────────────────────────────────────────
         while state.step_count < max_steps:
 
-            # Tất cả tasks xong → thoát để tổng kết
             if state.has_tasks and state.all_tasks_done():
-                log.info("[Loop] Tất cả tasks done — thoát để tổng kết")
                 break
 
+            # ── Plan ──────────────────────────────────────────────────────
+            log.info(_STEP)
+            t_plan = time.perf_counter()
             action = self.planner.plan_step(state)
+            elapsed_plan = time.perf_counter() - t_plan
             state.step_count += 1
 
-            log.info(
-                "[Loop] step=%d/%d type=%s tool=%s task=%s",
-                state.step_count, max_steps,
-                action.get("type"), action.get("tool", "–"),
-                state.current_task_index if state.has_tasks else "–",
-            )
+            a_type = action.get("type")
+            a_tool = action.get("tool", "")
+            a_args = action.get("args") or {}
 
-            # ── Planner trả finish ────────────────────────────────────────
-            if action.get("type") == "finish":
+            if a_type == "tool":
+                log.info(
+                    "  🧠  plan     → %s(%s)  %.1fs",
+                    a_tool,
+                    json.dumps(a_args, ensure_ascii=False),
+                    elapsed_plan,
+                )
+            else:
+                log.info(
+                    "  🧠  plan     → finish  %.1fs", elapsed_plan,
+                )
+
+            # ── Finish từ planner ─────────────────────────────────────────
+            if a_type == "finish":
+                answer = action.get("answer", "Xong.")
+                log.info('  ✅  answer   → "%s"', answer[:100])
                 if state.has_tasks and not state.all_tasks_done():
-                    # Task hiện tại xong, còn task tiếp theo
                     state.mark_current_task_done()
                     if state.all_tasks_done():
-                        return action.get("answer", "Xong.")
-                    # Xóa observation cũ để không nhiễu sang task sau
+                        return answer
                     state.observation = ""
                     continue
-                return action.get("answer", "Xong.")
+                return answer
 
-            # ── Thực thi tool ─────────────────────────────────────────────
+            # ── Execute tool ──────────────────────────────────────────────
+            t_exec = time.perf_counter()
             result = self.executor.run_one(action)
+            elapsed_exec = time.perf_counter() - t_exec
+
             obs = self._make_observation(result)
             state.history.append({"action": action, "observation": obs})
             state.observation = obs
 
             if result.get("success", True):
+                log.info(
+                    "  ⚙   exec     → ✓ %s  %.1fs",
+                    obs[:_OBS_LOG],
+                    elapsed_exec,
+                )
                 if state.has_tasks:
-                    log.info("[Loop] Task done: %r", state.current_task)
+                    log.info("  ✔   task     done: %r", state.current_task)
                     state.mark_current_task_done()
-                    # Chỉ xóa observation khi còn task tiếp theo
-                    # (giữ lại nếu đây là task cuối để dùng cho tổng kết)
                     if not state.all_tasks_done():
                         state.observation = ""
 
             elif not result.get("retryable", True):
                 log.warning(
-                    "[Loop] Non-retryable fail: %r — %s",
-                    state.current_task, obs,
+                    "  ⚙   exec     → ✗ %s  %.1fs",
+                    obs[:_OBS_LOG],
+                    elapsed_exec,
                 )
+                log.warning("  ✘   task     failed (non-retryable): %r", state.current_task)
                 if state.has_tasks:
                     state.mark_current_task_failed()
 
             else:
                 attempts = state.increment_task_attempts()
                 log.warning(
-                    "[Loop] Retry %d/%d: %r", attempts, max_attempts, state.current_task,
+                    "  ⚙   exec     → ✗ %s  %.1fs",
+                    obs[:_OBS_LOG],
+                    elapsed_exec,
+                )
+                log.warning(
+                    "  ↺   retry    %d/%d: %r", attempts, max_attempts, state.current_task,
                 )
                 if attempts >= max_attempts:
-                    log.warning("[Loop] MAX_ATTEMPTS=%d — đánh dấu failed", max_attempts)
+                    log.warning("  ✘   task     max attempts → failed: %r", state.current_task)
                     if state.has_tasks:
                         state.mark_current_task_failed()
 
         # ── Kết thúc loop ─────────────────────────────────────────────────
         if state.step_count >= max_steps:
-            log.warning("[Loop] Vượt MAX_STEPS=%d", max_steps)
+            log.warning("  ✘  vượt max_steps=%d", max_steps)
             return "Tôi đã thử nhiều bước nhưng chưa hoàn thành được yêu cầu."
 
-        # Tổng kết: build observation từ history thực tế (không chỉ task names)
+        # ── Summary call ──────────────────────────────────────────────────
         state.observation = self._build_summary_obs(state)
-        log.debug("[Loop] Summary obs: %r", state.observation[:100])
+        log.info(_STEP)
+        log.debug("  obs      → %s", state.observation[:_OBS_LOG])
 
-        # Yêu cầu planner tổng kết — force finish nếu planner bị confused
+        t_sum = time.perf_counter()
         action = self.planner.plan_step(state)
-        if action.get("type") == "finish":
-            return action.get("answer", "Xong.")
+        elapsed_sum = time.perf_counter() - t_sum
 
-        # Planner trả tool action thay vì finish → fallback tự tổng kết
-        log.warning("[Loop] Planner trả tool thay vì finish khi tổng kết — dùng obs trực tiếp")
+        if action.get("type") == "finish":
+            answer = action.get("answer", "Xong.")
+            log.info('  📋  summary  → "%s"  %.1fs', answer[:100], elapsed_sum)
+            return answer
+
+        log.warning("  ⚠   planner trả tool thay vì finish khi tổng kết — dùng obs")
         return state.observation or "Đã hoàn thành yêu cầu."
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _build_summary_obs(self, state: AgentState) -> str:
-        """Tổng hợp kết quả từ history thực tế để planner tổng kết chính xác.
+    def _log_done(self, t0: float, ok: bool = True) -> None:
+        label = "done" if ok else "error"
+        log.info("  %s  %.1fs", label, time.perf_counter() - t0)
+        log.info(_SEP)
 
-        Lấy các observation thành công (không bắt đầu bằng FAILED:)
-        từ history, kèm danh sách tasks failed nếu có.
-        """
+    def _build_summary_obs(self, state: AgentState) -> str:
+        """Tổng hợp kết quả từ history để planner tổng kết chính xác."""
         successful_obs = [
             h["observation"]
             for h in state.history
             if not h["observation"].startswith("FAILED:")
         ]
-
         parts: list[str] = []
         if successful_obs:
-            # Lấy tối đa 3 kết quả gần nhất, mỗi cái tối đa 150 chars
             trimmed = [o[:150] for o in successful_obs[-3:]]
             parts.append("Results: " + " | ".join(trimmed))
-
         if state.has_tasks:
             failed = [t["task"] for t in state.tasks if t["status"] == "failed"]
             if failed:
                 parts.append("Failed: " + "; ".join(failed))
-
         return " ".join(parts) if parts else ""
 
     def _get_user_name(self) -> str:
@@ -245,10 +290,10 @@ class Agent:
         for m in memories:
             groups.setdefault(m["type"], []).append(m)
         type_labels = {
-            "path": "📁 Đường dẫn",
+            "path":       "📁 Đường dẫn",
             "preference": "⭐ Ưa thích",
-            "schedule": "📅 Lịch trình",
-            "personal": "👤 Cá nhân",
+            "schedule":   "📅 Lịch trình",
+            "personal":   "👤 Cá nhân",
         }
         lines = ["Đây là những gì tôi nhớ về bạn:\n"]
         for t, items in groups.items():

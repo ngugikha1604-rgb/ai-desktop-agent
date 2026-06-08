@@ -19,6 +19,8 @@ _PROMPT_PLACEHOLDER = '"{user_input}"'
 # Từ nối multi-step rõ ràng — nếu không có → fast-path, bỏ qua LLM
 _MULTI_STEP_RE = re.compile(
     r"\b(rồi|sau\s+đó|tiếp\s+theo|xong\s+thì|xong\s+rồi|sau\s+khi"
+    r"|đồng\s+thời"                                          # đồng thời = simultaneously
+    r"|và\s+(?:cho|mở|tìm|đọc|lấy|xem|kiểm\s*tra|chạy|tắt|gửi|bật|chụp)"  # và + action verb
     r"|then|after\s+that|and\s+then)\b",
     re.IGNORECASE,
 )

@@ -29,6 +29,30 @@ _STOPWORDS = {
     "that", "this", "from", "what", "how",
 }
 
+# ── Dynamic tool selection ────────────────────────────────────────────────────
+
+# Tools luôn có mặt dù filter thế nào (versatile fallback)
+_CORE_TOOLS: frozenset[str] = frozenset({"get_system_info", "run_command"})
+
+# Mapping task.type → tools liên quan
+_TYPE_TOOLS: dict[str, frozenset[str]] = {
+    "search":      frozenset({"search_file", "read_file"}),
+    "read":        frozenset({"read_file", "get_clipboard", "search_file", "get_active_window"}),
+    "action":      frozenset({"open_app", "kill_process", "write_file", "browser_action",
+                               "open_url", "search_web", "send_notification", "take_screenshot",
+                               "set_clipboard"}),
+    "communicate": frozenset({"send_notification", "set_clipboard", "get_clipboard", "open_url"}),
+    "process":     frozenset({"get_running_processes", "get_active_window"}),
+}
+
+# Regex tìm tên tool trong chuỗi hint
+_HINT_TOOL_RE = re.compile(
+    r"\b(open_app|kill_process|search_file|read_file|write_file"
+    r"|get_system_info|get_running_processes|get_active_window|run_command"
+    r"|get_clipboard|set_clipboard|take_screenshot|send_notification"
+    r"|open_url|search_web|browser_action)\b"
+)
+
 
 # ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -55,7 +79,7 @@ class Planner:
     def __init__(self) -> None:
         self._llm: OllamaClient | None = None
         self._memory = None
-        self._prompt: str | None = None  # cache: load file một lần mỗi session
+        self._prompt_template: str | None = None  # cache: raw template, {tool_docs} chưa thế
 
     def set_memory(self, memory) -> None:
         self._memory = memory
@@ -65,13 +89,18 @@ class Planner:
             self._llm = get_planner_llm()
         return self._llm
 
-    def _get_prompt(self) -> str:
-        """Load prompt file một lần, cache cho các bước tiếp theo."""
-        if self._prompt is None:
+    def _get_prompt_template(self) -> str:
+        """Load file prompt một lần, giữ nguyên placeholder {tool_docs}."""
+        if self._prompt_template is None:
             s = load_settings()
-            prompt = load_prompt_file(s["planner_prompt"])
-            self._prompt = prompt.replace("{tool_docs}", build_prompt_section())
-        return self._prompt
+            self._prompt_template = load_prompt_file(s["planner_prompt"])
+        return self._prompt_template
+
+    def _get_system_prompt(self, tool_names: list[str] | None) -> str:
+        """Build system prompt với danh sách tool đã filter. Không cache (dynamic per step)."""
+        return self._get_prompt_template().replace(
+            "{tool_docs}", build_prompt_section(tool_names)
+        )
 
     # ── Main ──────────────────────────────────────────────────────────────────
 
@@ -89,8 +118,13 @@ class Planner:
 
         try:
             s = load_settings()
+            tool_names = self._select_tools(state)
+            log.debug(
+                "[Planner] tools=%s",
+                "all" if tool_names is None else str(len(tool_names)),
+            )
             text = self._get_llm().generate(
-                self._get_prompt(),
+                self._get_system_prompt(tool_names),
                 self._build_message(state),
                 num_predict=s.get("num_predict_planner", 256),
                 caveman=False,   # caveman prefix xung đột với JSON schema
@@ -122,6 +156,58 @@ class Planner:
             and last.get("args") == prev.get("args")
         )
 
+    # ── Dynamic tool selection ──────────────────────────────────────────
+
+    @staticmethod
+    def _select_tools(state: AgentState) -> list[str] | None:
+        """Chọn tập con tools phù hợp cho task hiện tại.
+
+        Returns:
+            list[str]: tên các tools cần hiển thị (sorted)
+            None:      dùng toàn bộ 16 tools (fallback an toàn)
+        """
+        if not state.has_tasks:
+            return None  # không có task info → full list
+
+        task = state.current_task_dict
+        if not task:
+            return None  # hết tasks (vd: summary step) → full list
+
+        hint: str = task.get("hint", "")
+        task_type: str = task.get("type", "")
+
+        if not hint and not task_type:
+            return None
+
+        selected: set[str] = set(_CORE_TOOLS)
+
+        # 1. Tool từ hint (ưu tiên nhất — TaskAnalyzer đã suy luận sẵn)
+        m = _HINT_TOOL_RE.search(hint) if hint else None
+        if m:
+            selected.add(m.group(1))
+
+        # 2. Type-based tools
+        # Bỏ qua "action" + không có hint: "action" là type default của fast-path
+        # fallback (_fallback()) — quá generic, filter sẽ loại mất các tools cần thiết.
+        # Chỉ dùng TYPE_TOOLS["action"] khi hint đã xác nhận đây đúng là action task.
+        should_use_type = (
+            task_type in _TYPE_TOOLS
+            and not (task_type == "action" and not hint)
+        )
+        if should_use_type:
+            selected |= _TYPE_TOOLS[task_type]
+
+        # 3. Safety: nếu filter không thêm được gì ngoài core → không có signal
+        #    hữu ích → trả None để dùng full list, tránh planner bị mù tool
+        if selected == _CORE_TOOLS:
+            return None
+
+        log.debug(
+            "[Planner._select_tools] hint=%r type=%r → %d tools: %s",
+            hint[:60], task_type, len(selected), sorted(selected),
+        )
+        return sorted(selected)
+
     # ── Build context message ─────────────────────────────────────────────────
 
     def _build_message(self, state: AgentState) -> str:
@@ -138,7 +224,8 @@ class Planner:
         # Goal — luôn là chuỗi sạch, không prefix
         parts.append(f"Goal: {state.goal}")
 
-        # Current Task — dùng dict đầy đủ để inject hint / requires / expected_output
+        # Current Task — hint / requires / expected_output là reserved fields,
+        # sẽ được populate khi TaskAnalyzer được nâng cấp. Hiện tại luôn rỗng.
         if state.has_tasks:
             task = state.current_task_dict
             if task:

@@ -21,7 +21,7 @@ class Executor:
             return fail(f"Tool '{tool_name}' không tồn tại.", retryable=False)
 
         try:
-            log.info("[Executor] %s(%s)", tool_name, args)
+            log.debug("[Executor] %s(%s)", tool_name, args)
             return TOOL_REGISTRY[tool_name](**args)
         except TypeError as exc:
             return fail(f"Lỗi tham số '{tool_name}': {exc}", retryable=False)
