@@ -176,3 +176,59 @@ QPushButton#SkipButton {
 }
 QPushButton#SkipButton:hover { background-color: #303846; }
 """
+
+CONFIRM_DIALOG_STYLE = """
+QDialog {
+    background-color: #11131a;
+    color: #d7deea;
+    border: 1px solid #3d2020;
+    border-radius: 14px;
+}
+QLabel {
+    color: #d7deea;
+    font-size: 13px;
+    background: transparent;
+}
+QLabel#ConfirmMessage {
+    color: #b0bec5;
+    font-size: 12px;
+}
+QLabel#ConfirmTool {
+    background-color: #1a1e2a;
+    border: 1px solid #2e3748;
+    border-radius: 6px;
+    color: #81d4fa;
+    font-family: Consolas, monospace;
+    font-size: 12px;
+    padding: 8px 10px;
+}
+QLabel#ConfirmReason {
+    color: #8a929e;
+    font-size: 11px;
+}
+QPushButton {
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    padding: 9px 0px;
+    min-width: 130px;
+}
+QPushButton#DenyButton {
+    background-color: #252b36;
+    color: #d7deea;
+}
+QPushButton#DenyButton:hover  { background-color: #303846; }
+QPushButton#DenyButton:pressed{ background-color: #1e2530; }
+QPushButton#AllowButton {
+    background-color: #2f6fed;
+    color: #ffffff;
+}
+QPushButton#AllowButton:hover  { background-color: #4f8cff; }
+QPushButton#AllowButton:pressed{ background-color: #2459cc; }
+QPushButton#AllowCriticalButton {
+    background-color: #7b2020;
+    color: #ffd0d0;
+}
+QPushButton#AllowCriticalButton:hover  { background-color: #a83030; }
+QPushButton#AllowCriticalButton:pressed{ background-color: #5c1818; }
+"""

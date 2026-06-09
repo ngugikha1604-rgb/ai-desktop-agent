@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 
 # Reconfigure stdout and stderr to UTF-8 to prevent UnicodeEncodeError on Windows
 if sys.stdout is not None:
@@ -16,7 +17,7 @@ if sys.stderr is not None:
         pass
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog
 
 from agent import Agent
 from agent.logger import get_logger
@@ -59,6 +60,9 @@ class DesktopApp:
         # ── Memory callback ─────────────────────────────────────────
         self._agent.on_memory_saved = self._on_memory_saved
 
+        # ── Safety confirmation ──────────────────────────────────────
+        self._setup_safety_confirmation()
+
     # ── Initialization ─────────────────────────────────────────────────
 
     def _init_stt(self) -> None:
@@ -77,6 +81,44 @@ class DesktopApp:
         except Exception as e:
             log.warning("[App] STT init lỗi: %s", e)
             self._bar.disable_mic(str(e))
+
+    def _setup_safety_confirmation(self) -> None:
+        """Kết nối safety confirmation dialog với Executor.
+
+        Cơ chế:
+          Worker thread (agent) gọi confirm_handler(assessment) → block qua threading.Event
+          Main thread nhận QTimer.singleShot → hiển thị ConfirmDialog
+          User click → event.set() → worker tiếp tục
+          Timeout 30s → auto-deny (an toàn)
+        """
+        from ui.confirm_dialog import ConfirmDialog
+
+        def confirm_handler(assessment) -> bool:
+            event  = threading.Event()
+            result = [False]   # mutable để closure ghi vào
+
+            def show_on_main() -> None:
+                try:
+                    # Đảm bảo CommandBar visible để người dùng thấy dialog
+                    if not self._bar.isVisible():
+                        self._bar.show_bar()
+                    dlg = ConfirmDialog(assessment, self._bar)
+                    result[0] = dlg.exec() == QDialog.DialogCode.Accepted
+                except Exception:
+                    log.exception("[Safety] Lỗi khi hiển thị confirm dialog")
+                finally:
+                    event.set()   # luôn unblock worker dù có lỗi
+
+            # Chuyển sang main thread (thread-safe)
+            QTimer.singleShot(0, show_on_main)
+
+            # Block worker thread — timeout 30s → auto-deny
+            confirmed = event.wait(timeout=30)
+            if not confirmed:
+                log.warning("[Safety] Xác nhận hết thời gian (30s) → từ chối")
+            return result[0]
+
+        self._agent.executor.on_confirm = confirm_handler
 
     def setup(self) -> None:
         app = QApplication.instance()

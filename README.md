@@ -14,23 +14,21 @@ Một AI Agent chạy **hoàn toàn cục bộ** trên Windows, nhận lệnh ng
 → RAM đang dùng 9.2 GB / 16 GB (57.5%). CPU: 12%. Ổ C còn 48 GB trống.
 
 > Tắt Chrome đi
-→ Đã kết thúc chrome.exe (PID 4821).
+🔴 [NGUY HIỂM] kill_process("chrome.exe")
+   Sẽ kết thúc tiến trình: 'chrome.exe'.
+→ [Từ chối] / [Cho phép]  ← hộp thoại xác nhận hiện ra
+
+> Ghi nội dung "Hello" vào C:\notes.txt
+🔴 [NGUY HIỂM] write_file("C:\notes.txt")
+   Sẽ ghi đè (overwrite) file: 'C:\notes.txt'.
+→ [Từ chối] / [Cho phép]
 
 > Tìm file report trong ổ C rồi đọc nội dung
-→ Đã tìm thấy: C:\Users\ngugi\Documents\report_q3.txt
+→ Đã tìm thấy: C:\Users\ngugi\Documents\report_q3.txt  (không cần xác nhận — SAFE)
   Nội dung: Báo cáo quý 3...
-
-> Mở github.com rồi mở tab mới
-→ Đã mở github.com. Đã mở tab mới.
 
 > Desktop của tôi ở D:\Desktop
 → 📌 Đã ghi nhớ: đường dẫn Desktop = D:\Desktop
-
-> Bạn còn nhớ gì về tôi?
-→ 📁 Đường dẫn:
-    • đường dẫn Desktop: D:\Desktop
-  ⭐ Ưa thích:
-    • trình duyệt: Firefox
 ```
 
 ---
@@ -49,7 +47,7 @@ Một AI Agent chạy **hoàn toàn cục bộ** trên Windows, nhận lệnh ng
 | Voice input | Nhập lệnh bằng giọng nói (vi + en) — `Ctrl+Alt+V` |
 | Task decomposition | Tự động tách lệnh multi-step thành subtasks có thứ tự |
 | Long-term memory | Tự nhớ đường dẫn, app ưa thích, thông tin cá nhân qua nhiều phiên |
-| User profile | Tên người dùng, ngôn ngữ ưa thích |
+| **Safety layer** | **Chặn + yêu cầu xác nhận trước khi chạy tool nguy hiểm** |
 
 ---
 
@@ -65,9 +63,6 @@ Một AI Agent chạy **hoàn toàn cục bộ** trên Windows, nhận lệnh ng
 ### 1. Cài Ollama và pull model
 
 ```bash
-# Tải Ollama tại https://ollama.com/download
-
-# Pull 2 model (chỉ cần làm một lần, ~2-4 GB tổng)
 ollama pull qwen2.5:3b
 ollama pull qwen2.5:0.5b
 ```
@@ -78,76 +73,33 @@ ollama pull qwen2.5:0.5b
 pip install -r requirements.txt
 ```
 
-> **Về STT (giọng nói):** Tính năng này cần `faster-whisper` (đã có trong `requirements.txt`).
-> Model Whisper `base` (~145 MB) tự tải lần đầu khi bạn nhấn nút mic — **không ảnh hưởng tốc độ khởi động app**.
-
 ### 3. Chạy
 
 ```bash
-# Giao diện desktop (mặc định)
-python main.py
-
-# Hoặc tường minh
-python main.py gui
-
-# Chạy một lệnh từ CLI
-python main.py chat "RAM còn bao nhiêu?"
-
-# Vòng lặp chat CLI (không cần giao diện)
-python main.py repl
+python main.py          # giao diện desktop (mặc định)
+python main.py chat "RAM còn bao nhiêu?"   # CLI một lệnh
+python main.py repl     # vòng lặp chat CLI
 ```
 
-Agent GUI chạy nền ở system tray. Nhấn **`Ctrl+Alt+J`** để mở command bar.
-
-> **Lưu ý về Ollama:** App khởi động bình thường dù Ollama chưa chạy.
-> Nếu bạn gửi lệnh khi Ollama chưa lên, app sẽ hiển thị hướng dẫn thay vì báo lỗi kỹ thuật.
-> Bật Ollama bất kỳ lúc nào bằng `ollama serve` (hoặc để nó tự chạy nền nếu đã cài dịch vụ).
-
-> **Tối ưu hiệu năng CPU:** Flash Attention và KV Cache quantization được bật tự động
-> khi khởi động qua `python main.py`. Nếu bạn chạy `ollama serve` độc lập trước đó,
-> hãy set thủ công:
+> **Tối ưu CPU:** Set trước khi chạy `ollama serve` độc lập:
 > ```bash
-> set OLLAMA_FLASH_ATTENTION=1
-> set OLLAMA_KV_CACHE_TYPE=q8_0
-> ollama serve
+> set OLLAMA_FLASH_ATTENTION=1 && set OLLAMA_KV_CACHE_TYPE=q8_0 && ollama serve
 > ```
 
 ### 4. Cấu hình (tuỳ chọn)
 
-Chỉnh `config/settings.json`:
+`config/settings.json`:
 
 ```json
 {
-  "llm_provider": "ollama",
   "planner_model": "qwen2.5:3b",
   "analyzer_model": "qwen2.5:0.5b",
-  "response_model": "qwen2.5:0.5b",
-  "ollama_base_url": "http://localhost:11434",
   "num_ctx": 4096,
   "num_predict_planner": 256,
-  "num_predict_analyzer": 512,
-  "num_predict_response": 512,
-  "num_predict_extractor": 128,
-  "caveman_mode": true,
-  "history_limit": 6,
   "max_agent_steps": 10,
-  "max_task_attempts": 3,
-  "stt_model": "base",
-  "preferred_microphone": null
+  "max_task_attempts": 3
 }
 ```
-
-| Tham số | Mô tả |
-|---------|-------|
-| `planner_model` | Model chọn action tiếp theo (qwen2.5:3b) |
-| `analyzer_model` | Model phân tích subtask (qwen2.5:0.5b) |
-| `response_model` | Model dùng cho memory extractor (qwen2.5:0.5b) |
-| `num_ctx` | Context window tối đa (tokens) |
-| `num_predict_*` | Token tối đa mỗi LLM call theo vai trò |
-| `caveman_mode` | Nén output LLM (bỏ filler words) — giảm latency |
-| `history_limit` | Số tin nhắn history giữ lại trong context |
-| `max_agent_steps` | Số bước tối đa mỗi agent loop |
-| `max_task_attempts` | Số lần retry tối đa cho mỗi subtask |
 
 ---
 
@@ -157,8 +109,67 @@ Chỉnh `config/settings.json`:
 |----------|-----------|
 | `Ctrl+Alt+J` | Bật / tắt Command Bar |
 | `Ctrl+Alt+V` | Bật / tắt nhập giọng nói |
-| `Esc` | Đóng bar (hoặc huỷ ghi âm nếu đang nghe) |
+| `Esc` | Đóng bar (hoặc huỷ ghi âm) |
 | `Enter` | Gửi lệnh |
+
+---
+
+## Safety Layer
+
+Agent dùng model yếu (3B) nên có thể sinh lệnh sai. **Safety layer chặn tất cả tool nguy hiểm** và yêu cầu xác nhận trước khi thực thi — không tốn LLM token, chỉ dùng static rules + regex (O(1)).
+
+### 4 mức rủi ro
+
+| Mức | Icon | Ý nghĩa | Xác nhận? |
+|-----|------|---------|-----------|
+| `SAFE` | ✅ | Đọc-only, không thay đổi hệ thống | Không |
+| `CAUTION` | ⚠️ | Side effect nhỏ, có thể hoàn tác | Không |
+| `DANGEROUS` | 🔴 | Side effect đáng kể, khó hoàn tác | **Có** |
+| `CRITICAL` | 🚨 | Phá hoại / cấp hệ thống | **Có (cảnh báo đỏ)** |
+
+### Phân loại từng tool
+
+| Tool | Mặc định | Ngoại lệ |
+|------|----------|-----------|
+| `get_system_info`, `get_running_processes`, `get_active_window` | ✅ SAFE | — |
+| `get_clipboard`, `take_screenshot`, `send_notification` | ✅ SAFE | — |
+| `search_file`, `read_file` | ✅ SAFE | — |
+| `search_web`, `open_url` | ✅ SAFE | — |
+| `open_app`, `set_clipboard`, `browser_action` | ⚠️ CAUTION | — |
+| `write_file` (append=True) | ⚠️ CAUTION | — |
+| `write_file` (append=False, overwrite) | 🔴 DANGEROUS | — |
+| `write_file` (system path) | 🚨 CRITICAL | Path = `C:\Windows\`, `C:\System32\`... |
+| `kill_process` | 🔴 DANGEROUS | — |
+| `kill_process` (system proc) | 🚨 CRITICAL | `winlogon`, `lsass`, `csrss`... |
+| `run_command` (read-only) | ✅ SAFE | `dir`, `ping`, `git status`, `pip list`... |
+| `run_command` (thông thường) | 🔴 DANGEROUS | — |
+| `run_command` (destructive) | 🚨 CRITICAL | `format`, `shutdown`, `rd /s`, `net user`... |
+
+### Luồng xác nhận (GUI)
+
+```
+Worker thread                       Main thread (Qt)
+─────────────────                   ─────────────────
+Executor.run_one()
+  → SafetyChecker.assess()
+  → DANGEROUS detected
+  → confirm_handler(assessment)
+  → QTimer.singleShot(0, show_dlg)  ← schedule trên main thread
+  → event.wait(timeout=30s) ─BLOCK─
+                                     show_dlg() chạy:
+                                       bar.show_bar()
+                                       ConfirmDialog.exec() ← nested event loop
+                                       user click OK/Cancel
+                                       result[0] = True/False
+                                       event.set()
+  ← event.set() unblocks
+  → result[0] = True → execute tool
+  → result[0] = False → fail(retryable=False)
+```
+
+Timeout 30 giây → tự động từ chối (fail-safe).
+
+CLI mode fallback: hỏi trực tiếp qua `input()` trong terminal.
 
 ---
 
@@ -166,60 +177,39 @@ Chỉnh `config/settings.json`:
 
 ```
 ai-desktop-agent/
-├── main.py                      # Entry point (gui / chat / repl)
+├── main.py
 │
 ├── agent/
-│   ├── agent.py                 # Agent Loop: điều phối toàn bộ pipeline
-│   ├── task_analyzer.py         # Tách lệnh multi-step → TaskPlan (goal + subtasks)
-│   ├── planner.py               # LLM → JSON action (tool call hoặc finish)
-│   ├── executor.py              # Thực thi 1 tool action từ TOOL_REGISTRY
-│   ├── state.py                 # AgentState: goal, tasks, history, observation
-│   ├── memory.py                # SQLite: history, user_profile, long_term_memory
-│   ├── memory_extractor.py      # Trích xuất thông tin từ hội thoại (background thread)
-│   ├── llm.py                   # OllamaClient + typed exceptions
-│   ├── stt_engine.py            # faster-whisper: speech → text (lazy load)
-│   ├── config.py                # Load settings.json + .env
-│   └── logger.py                # Logging → logs/agent.log
+│   ├── agent.py           # Agent Loop: điều phối pipeline
+│   ├── task_analyzer.py   # Tách lệnh → TaskPlan (goal + subtasks)
+│   ├── planner.py         # LLM → JSON action
+│   ├── executor.py        # Thực thi tool + safety gate
+│   ├── safety.py          # SafetyChecker: phân loại rủi ro tool (NEW)
+│   ├── state.py           # AgentState
+│   ├── memory.py          # SQLite: history, profile, long_term_memory
+│   ├── memory_extractor.py
+│   ├── llm.py
+│   ├── stt_engine.py
+│   ├── config.py
+│   └── logger.py
 │
 ├── tools/
-│   ├── registry.py              # ToolSpec + TOOL_REGISTRY (16 tools) + prompt builder
-│   ├── __init__.py              # Export TOOL_REGISTRY dict
-│   ├── open_app.py
-│   ├── kill_process.py
-│   ├── search_file.py
-│   ├── read_file.py
-│   ├── write_file.py
-│   ├── run_command.py
-│   ├── system_info.py
-│   ├── process_info.py
-│   ├── active_window.py
-│   ├── clipboard.py
-│   ├── screenshot.py
-│   ├── notification.py
-│   ├── browser.py               # open_url, search_web
-│   ├── browser_control.py       # browser_action (tab control)
-│   ├── browser_utils.py         # Shared browser state: detect/focus browser window
-│   └── result.py                # Chuẩn hoá result dict {success, retryable, message}
+│   ├── registry.py        # ToolSpec + TOOL_REGISTRY (16 tools)
+│   ├── __init__.py
+│   └── ... (16 tool files)
 │
 ├── ui/
-│   ├── app.py                   # DesktopApp: QApplication, STT, hotkey, tray
-│   ├── command_bar.py           # Floating command bar + chat bubbles
-│   ├── worker.py                # AgentWorker (QThread, timeout 60s)
-│   ├── stt_worker.py            # SttWorker (QThread: ghi âm + silence detection)
-│   ├── hotkey.py                # Ctrl+Alt+J / Ctrl+Alt+V global hotkeys
-│   ├── tray.py                  # System tray icon
-│   └── styles.py                # QSS stylesheet
+│   ├── app.py             # DesktopApp: wire safety confirmation
+│   ├── command_bar.py     # Floating command bar
+│   ├── confirm_dialog.py  # ConfirmDialog cho dangerous tools (NEW)
+│   ├── worker.py          # AgentWorker (QThread)
+│   ├── stt_worker.py
+│   ├── hotkey.py
+│   ├── tray.py
+│   └── styles.py          # QSS + CONFIRM_DIALOG_STYLE (updated)
 │
 ├── prompts/
-│   ├── planner_prompt.txt       # System prompt cho Planner (inject tool docs tự động)
-│   ├── task_analyzer_prompt.txt # System prompt cho TaskAnalyzer
-│   └── agent_prompt.txt         # Prompt phụ (response formatting)
-│
-├── config/
-│   └── settings.json            # Cấu hình runtime
-│
-├── data/                        # SQLite DB (git-ignored)
-├── logs/                        # agent.log (git-ignored)
+├── config/settings.json
 └── tests/
 ```
 
@@ -232,170 +222,75 @@ Ctrl+Alt+J / Ctrl+Alt+V
         │
         ▼
  CommandBar (PySide6)
-  ┌─────┴──────┐
-  │ text input │  🎤 mic button
-  └─────┬──────┘       │
-        │         SttWorker (QThread)
-        │         load model khi lần đầu dùng
-        │         → faster-whisper transcribe
-        │         → fill_and_submit()
+        │
         ▼
- AgentWorker (QThread, timeout 60s)
+ AgentWorker (QThread, timeout 300s)
         │
         ▼
    Agent.run()
-    ├─► Special query handler
-    │    (nhớ gì / quên đi → trả lời trực tiếp, bỏ qua loop)
-    │
-    ├─► TaskAnalyzer ──► OllamaClient (qwen2.5:0.5b)
-    │    Fast-path: 1 action → 1 task, không gọi LLM
-    │    Multi-step: LLM tách thành TaskPlan (goal + subtasks có thứ tự)
-    │
-    ├─► AgentState (goal, tasks[], history, observation)
+    ├─► Special query handler (nhớ gì / quên đi)
+    ├─► TaskAnalyzer → qwen2.5:0.5b
+    │    Fast-path: 1 task, không gọi LLM
+    │    Multi-step: LLM tách → TaskPlan
     │
     └─► Agent Loop (max 10 bước)
          │
-         ├─► Stuck detection (same tool + args 2 lần liên tiếp → dừng)
-         ├─► Planner ──► OllamaClient (qwen2.5:3b)
-         │    inject memory context (step đầu)
-         │    inject current task + hint + requires
-         │    → JSON: {"type": "tool", ...} | {"type": "finish", ...}
+         ├─► Planner → qwen2.5:3b → JSON action
          │
-         ├─► Executor ──► TOOL_REGISTRY (16 tools)
-         │    → result {success, retryable, message}
+         ├─► SafetyChecker.assess(tool, args)   ← ZERO LLM
+         │    SAFE/CAUTION → thực thi ngay
+         │    DANGEROUS/CRITICAL → block worker
+         │         │
+         │         └─► QTimer → main thread
+         │              ConfirmDialog.exec()
+         │              user: Cho phép / Từ chối
+         │              event.set() → unblock
          │
-         ├─► Observation → update state
-         │    success → mark task done, move to next
-         │    retryable fail → retry (max 3 lần/task)
-         │    non-retryable → mark failed, move on
+         ├─► Executor.run_one() → TOOL_REGISTRY
          │
-         └─► (repeat)
+         └─► Observation → update state → repeat
               │
-              ▼ tất cả tasks xong
-         Summary observation → Planner tổng kết → finish answer
-              │
-              ▼
-    MemoryExtractor (background thread)
-         Heuristic filter → LLM extract → save long_term_memory
-         Notify UI nếu có gì mới lưu (tối đa 3 lần/phiên)
+              ▼ xong
+         Summary → Planner finish answer
               │
               ▼
-    CommandBar — hiển thị response + "📌 Đã ghi nhớ"
+    MemoryExtractor (background)
+              │
+              ▼
+    CommandBar — hiển thị response
 ```
 
 ---
 
 ## Task Decomposition
 
-`TaskAnalyzer` tự động tách lệnh phức thành subtasks có thứ tự trước khi vào Agent Loop.
+`TaskAnalyzer` tự động tách lệnh phức thành subtasks:
 
-**Fast-path** (không gọi LLM): input không có từ nối multi-step (`rồi`, `sau đó`, `tiếp theo`, `then`, `after that`...) → 1 task duy nhất, tiết kiệm ~1 inference call.
+**Fast-path** (không LLM): input 1 bước → 1 task, tiết kiệm 1 inference.
 
-**LLM path**: dùng `qwen2.5:0.5b` để sinh `TaskPlan`:
-
+**LLM path** (`qwen2.5:0.5b`):
 ```json
 {
-  "goal": "Đọc nội dung file report",
+  "goal": "Đọc file report",
   "tasks": [
-    {
-      "task": "Tìm file report trong ổ C",
-      "type": "search",
-      "hint": "Use search_file tool with root C:\\",
-      "requires": [],
-      "expected_output": "file_path",
-      "status": "pending"
-    },
-    {
-      "task": "Đọc nội dung file",
-      "type": "read",
-      "hint": "Use read_file tool",
-      "requires": ["file_path"],
-      "expected_output": "file content",
-      "status": "pending"
-    }
+    {"task": "Tìm file report", "type": "search", "hint": "search_file"},
+    {"task": "Đọc nội dung", "type": "read", "hint": "read_file"}
   ]
 }
 ```
 
-Mỗi subtask có `hint` (gợi ý tool) và `requires` (output từ task trước) → Planner chọn đúng tool ngay từ bước đầu thay vì phải tự suy luận.
-
 ---
 
-## Tool Registry
+## Dynamic Tool Selection
 
-`tools/registry.py` là single source of truth cho tất cả 16 tools. Mỗi tool được khai báo dưới dạng `ToolSpec` với metadata đầy đủ:
-
-```python
-ToolSpec(
-    name="search_file",
-    fn=search_file,
-    category="filesystem",
-    description="...",
-    when_to_use="...",
-    returns="...",
-    args={"keyword": "string, required — ...", "root": "string, optional — ..."},
-    examples=[{"user": "tìm file README", "call": {"tool": "search_file", "args": {...}}}],
-)
-```
-
-Registry tự sinh đoạn `AVAILABLE TOOLS` cho planner prompt (`build_prompt_section(tool_names=None)`) — không cần viết tay trong file `.txt`.
-
-### Dynamic Tool Selection
-
-Thay vì luôn đẩy toàn bộ 16 tools vào system prompt, Planner tự động filter chỉ giữ lại tools phù hợp trước mỗi bước — không gọi thêm bất kỳ LLM nào.
-
-**Logic (theo thứ tự):**
-1. **Core tools** — luôn có mặt: `get_system_info`, `run_command`
-2. **Hint tool** — tên tool tìm trong `task.hint` (do TaskAnalyzer suy luận khi LLM path)
-3. **Type tools** — nhóm tools theo `task.type` (chỉ khi có hint xác nhận, xem bảng dưới)
-
-**Fallback an toàn → full 16 tools** khi bất kỳ điều kiện sau xảy ra:
-- Fast-path single-step task (`hint=""` + `type="action"` mặc định) — không có đủ thông tin để filter
-- Summary step (sau khi tất cả tasks xong)
-- Filter không thêm được gì ngoài 2 core tools
-- `type="action"` mà không có hint — `"action"` quá generic, dùng full list để tránh planner mù tool
-
-**Type tools** (chỉ áp dụng khi multi-step task đã qua LLM analyzer):
-
-| `type` | Tools được hiển thị |
-|--------|----------------------|
-| `search` | search_file, read_file |
-| `read` | read_file, get_clipboard, search_file, get_active_window |
-| `action` | open_app, kill_process, write_file, browser_action, open_url, search_web, send_notification, take_screenshot, set_clipboard |
-| `communicate` | send_notification, set_clipboard, get_clipboard, open_url |
-| `process` | get_running_processes, get_active_window |
-
-**Tiết kiệm token ước tính** (chỉ có ý nghĩa với multi-step tasks đã qua LLM analyzer):
+Thay vì luôn đẩy 16 tools vào prompt, Planner filter chỉ giữ tools phù hợp — không LLM.
 
 | Trường hợp | Tools hiển thị | Tiết kiệm |
 |------------|-----------------|----------|
-| Single-step (fast-path) | 16 tools | 0% — đủ signal để filter |
+| Single-step (fast-path) | 16 tools | 0% |
 | Multi-step: search task | ~4 tools | ~75% |
 | Multi-step: read task | ~6 tools | ~62% |
-| Multi-step: action task có hint | ~12 tools | ~25% |
-| Multi-step: communicate task | ~6 tools | ~62% |
-| Multi-step: process task | ~4 tools | ~75% |
-
-### 16 Tools hiện có
-
-| Nhóm | Tool | Mô tả |
-|------|------|-------|
-| App | `open_app` | Mở ứng dụng theo tên / alias |
-| App | `kill_process` | Tắt process theo tên hoặc PID |
-| File | `search_file` | Tìm file theo từ khoá |
-| File | `read_file` | Đọc nội dung file |
-| File | `write_file` | Ghi / append nội dung file |
-| System | `get_system_info` | RAM, CPU, Disk usage |
-| System | `get_running_processes` | Danh sách process đang chạy |
-| System | `get_active_window` | Cửa sổ đang được focus |
-| Shell | `run_command` | Chạy lệnh terminal |
-| Clipboard | `get_clipboard` | Đọc clipboard |
-| Clipboard | `set_clipboard` | Ghi vào clipboard |
-| Screen | `take_screenshot` | Chụp màn hình |
-| Screen | `send_notification` | Gửi Windows toast notification |
-| Browser | `open_url` | Mở URL (tự mở browser nếu chưa chạy) |
-| Browser | `search_web` | Tìm kiếm Google |
-| Browser | `browser_action` | Điều khiển tab (new/close/reload/back/forward) |
+| Multi-step: action task | ~12 tools | ~25% |
 
 ---
 
@@ -404,31 +299,13 @@ Thay vì luôn đẩy toàn bộ 16 tools vào system prompt, Planner tự độ
 | Loại | Ví dụ |
 |------|-------|
 | `path` | "Desktop của tôi ở D:\Desktop" |
-| `preference` | "Tôi dùng VS Code", "Trình duyệt là Firefox" |
-| `schedule` | "Họp mỗi thứ Hai 9h sáng" |
-| `personal` | "Tên tôi là Nam", "Tôi là lập trình viên" |
+| `preference` | "Tôi dùng VS Code" |
+| `schedule` | "Họp mỗi thứ Hai 9h" |
+| `personal` | "Tên tôi là Nam" |
 
 ```
-> Bạn còn nhớ gì về tôi?   — xem tất cả bộ nhớ
-> Quên đi rằng Desktop tôi  — xoá bộ nhớ cụ thể
-> Tên tôi là [tên]          — cập nhật tên tự động
-```
-
-Memory extraction chạy **background thread** sau mỗi turn, với bộ lọc heuristic để tránh gọi LLM không cần thiết:
-- Bỏ qua input < 20 ký tự hoặc thuộc danh sách generic phrase (`ok`, `cảm ơn`, `bye`...)
-- Chỉ extract khi input chứa keyword gợi ý có thông tin đáng lưu (`thích`, `là`, `ở`, `path`, `dùng`...)
-- UI chỉ hiển thị thông báo "📌 Đã ghi nhớ" tối đa 3 lần mỗi phiên (DB vẫn lưu đầy đủ)
-- Không bao giờ lưu thông tin nhạy cảm (mật khẩu, token, API key, số tài khoản...)
-
----
-
-## SQLite Schema
-
-```
-history          — chat history (role, content, created_at)
-user_profile     — tên, ngôn ngữ ưa thích (1 hàng duy nhất)
-long_term_memory — key/value/type/is_active/access_count/relevance_score
-memories         — legacy key-value store (dự phòng)
+> Bạn còn nhớ gì về tôi?   — xem tất cả
+> Quên đi rằng Desktop tôi  — xoá bộ nhớ
 ```
 
 ---
@@ -437,10 +314,10 @@ memories         — legacy key-value store (dự phòng)
 
 | Thành phần | Công nghệ |
 |------------|-----------|
-| LLM | Ollama — Qwen2.5 3B (planner) / 0.5B (analyzer, extractor) |
-| STT | faster-whisper `base` — Whisper (local, vi + en) |
+| LLM | Ollama — Qwen2.5 3B / 0.5B |
+| STT | faster-whisper `base` (local, vi + en) |
 | UI | PySide6 (Qt6) |
-| Database | SQLite (built-in Python) |
+| Database | SQLite |
 | Validation | Pydantic v2 |
 | System APIs | pywin32, psutil |
 | Browser control | pyautogui |
@@ -451,23 +328,15 @@ memories         — legacy key-value store (dự phòng)
 
 ## Roadmap
 
-### Tính năng đã hoàn thành
+### Đã hoàn thành
 
-- [x] Phase 1 — MVP: mở app, system info, chạy lệnh
-- [x] Phase 2 — File management
-- [x] Phase 3 — Chat history (SQLite)
-- [x] Phase 4 — Multi-step planning
-- [x] Phase 5 — Tool Registry (16 tools + ToolSpec metadata)
-- [x] Phase 6 — Desktop UX: floating bar, hotkey, tray
-- [x] Phase 7 — Local LLM (Ollama / Qwen2.5)
-- [x] Phase 8 — Long-term memory & user profile
-- [x] Phase 9 — Voice input (faster-whisper)
-- [x] Phase 10 — Browser automation
-- [x] Agent Loop — State, Observation, Stuck detection, Retry logic
-- [x] Task Decomposition — TaskAnalyzer (multi-step → subtasks với hint/requires)
+- [x] Phase 1–10: MVP → Tool Registry → Desktop UX → LLM → Memory → Voice → Browser
+- [x] Agent Loop: State, Observation, Stuck detection, Retry
+- [x] Task Decomposition: TaskAnalyzer (multi-step → subtasks)
+- [x] Dynamic Tool Selection: filter tools theo hint/type (zero LLM)
+- [x] **Safety Layer: SafetyChecker + ConfirmDialog (4 risk levels, zero LLM)**
 
-### Tiếp theo (theo PLAN.md)
+### Tiếp theo
 
-- [ ] Phase 5 (PLAN.md) — Thêm tools thực tế: OCR màn hình, click, type, key press
-- [ ] Phase 6 (PLAN.md) — Validation layer (kiểm tra args trước khi gọi tool)
+- [ ] Phase 5 (PLAN.md) — OCR màn hình, click, type, key press
 - [ ] Phase 7 (PLAN.md) — Coding Agent (project_tree, grep_code, apply_patch)
