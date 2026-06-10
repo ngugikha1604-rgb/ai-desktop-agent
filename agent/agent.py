@@ -228,6 +228,34 @@ class Agent:
             log.info('  📋  summary  → "%s"  %.1fs', answer[:100], elapsed_sum)
             return answer
 
+        # Planner muốn gọi tool đọc thêm — cho phép 1 lần nếu là read-only tool.
+        # Lý do: web_search chỉ trả snippet/URL, model đúng khi muốn web_read để lấy data thực.
+        _ALLOWED_EXTRA = {"web_read", "read_file", "get_system_info",
+                          "get_running_processes", "get_active_window", "get_clipboard"}
+        if action.get("type") == "tool" and action.get("tool") in _ALLOWED_EXTRA:
+            a_tool = action["tool"]
+            a_args = action.get("args") or {}
+            log.info(
+                "  🔍  extra    → %s(%s)  %.1fs",
+                a_tool, json.dumps(a_args, ensure_ascii=False), elapsed_sum,
+            )
+            t_exec = time.perf_counter()
+            result = self.executor.run_one(action)
+            elapsed_exec = time.perf_counter() - t_exec
+            obs = self._make_observation(result)
+            log.info("  ⚙   exec     → %s  %.1fs", obs[:_OBS_LOG], elapsed_exec)
+            state.history.append({"action": action, "observation": obs})
+            state.observation = obs
+
+            # Final planner call — phải finish, không cho gọi tool nữa
+            t_final = time.perf_counter()
+            action = self.planner.plan_step(state)
+            elapsed_final = time.perf_counter() - t_final
+            if action.get("type") == "finish":
+                answer = action.get("answer", "Xong.")
+                log.info('  📋  summary  → "%s"  %.1fs', answer[:100], elapsed_final)
+                return answer
+
         log.warning("  ⚠   planner trả tool thay vì finish khi tổng kết — dùng obs")
         return state.observation or "Đã hoàn thành yêu cầu."
 
@@ -247,7 +275,8 @@ class Agent:
         ]
         parts: list[str] = []
         if successful_obs:
-            trimmed = [o[:150] for o in successful_obs[-3:]]
+            # Tăng từ 150 → 400 để planner thấy đủ snippet (web_search, read_file...)
+            trimmed = [o[:400] for o in successful_obs[-3:]]
             parts.append("Results: " + " | ".join(trimmed))
         if state.has_tasks:
             failed = [t["task"] for t in state.tasks if t["status"] == "failed"]

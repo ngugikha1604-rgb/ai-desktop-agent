@@ -16,7 +16,7 @@ if sys.stderr is not None:
     except Exception:
         pass
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QApplication, QDialog
 
 from agent import Agent
@@ -31,15 +31,25 @@ from ui.worker import AgentWorker
 log = get_logger(__name__)
 
 
+class _UiBridge(QObject):
+    """Cross-thread signal bridge for UI work that must run on the Qt main thread."""
+
+    confirm_requested = Signal(object)
+    memory_notice_requested = Signal(object)
+
+
 class DesktopApp:
     def __init__(self) -> None:
         self._agent  = Agent()
         self._worker: AgentWorker | None = None
+        self._bridge = _UiBridge()
 
         # ── UI ──────────────────────────────────────────────────────
         self._bar = CommandBar()
         self._bar.submitted.connect(self._on_submit)
         self._bar.voice_toggle.connect(self._on_voice_toggle)
+        self._bridge.confirm_requested.connect(self._show_confirm_request)
+        self._bridge.memory_notice_requested.connect(self._show_memory_notice)
 
         # ── Hotkeys ─────────────────────────────────────────────────
         self._hotkey = GlobalHotkey()
@@ -91,34 +101,39 @@ class DesktopApp:
           User click → event.set() → worker tiếp tục
           Timeout 30s → auto-deny (an toàn)
         """
-        from ui.confirm_dialog import ConfirmDialog
-
         def confirm_handler(assessment) -> bool:
-            event  = threading.Event()
-            result = [False]   # mutable để closure ghi vào
+            event = threading.Event()
+            request = {
+                "assessment": assessment,
+                "event": event,
+                "result": False,
+            }
 
-            def show_on_main() -> None:
-                try:
-                    # Đảm bảo CommandBar visible để người dùng thấy dialog
-                    if not self._bar.isVisible():
-                        self._bar.show_bar()
-                    dlg = ConfirmDialog(assessment, self._bar)
-                    result[0] = dlg.exec() == QDialog.DialogCode.Accepted
-                except Exception:
-                    log.exception("[Safety] Lỗi khi hiển thị confirm dialog")
-                finally:
-                    event.set()   # luôn unblock worker dù có lỗi
-
-            # Chuyển sang main thread (thread-safe)
-            QTimer.singleShot(0, show_on_main)
+            # Queue onto the Qt main thread. QTimer.singleShot from a worker thread
+            # can attach to the wrong event loop; this gives Qt a receiver thread.
+            self._bridge.confirm_requested.emit(request)
 
             # Block worker thread — timeout 30s → auto-deny
             confirmed = event.wait(timeout=30)
             if not confirmed:
                 log.warning("[Safety] Xác nhận hết thời gian (30s) → từ chối")
-            return result[0]
+            return bool(request["result"])
 
         self._agent.executor.on_confirm = confirm_handler
+
+    def _show_confirm_request(self, request: dict) -> None:
+        """Show a safety confirmation dialog on the Qt main thread."""
+        from ui.confirm_dialog import ConfirmDialog
+
+        try:
+            if not self._bar.isVisible():
+                self._bar.show_bar()
+            dlg = ConfirmDialog(request["assessment"], self._bar)
+            request["result"] = dlg.exec() == QDialog.DialogCode.Accepted
+        except Exception:
+            log.exception("[Safety] Lỗi khi hiển thị confirm dialog")
+        finally:
+            request["event"].set()
 
     def setup(self) -> None:
         app = QApplication.instance()
@@ -186,8 +201,10 @@ class DesktopApp:
     # ── Memory notification ────────────────────────────────────────────
 
     def _on_memory_saved(self, saved_items: list[dict]) -> None:
-        # Chuyển về main thread qua QTimer.singleShot (thread-safe)
-        QTimer.singleShot(0, lambda: self._bar.show_memory_notice(saved_items))
+        self._bridge.memory_notice_requested.emit(saved_items)
+
+    def _show_memory_notice(self, saved_items: list[dict]) -> None:
+        self._bar.show_memory_notice(saved_items)
 
     # ── Voice input ────────────────────────────────────────────────────
 

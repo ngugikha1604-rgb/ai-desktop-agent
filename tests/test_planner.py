@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 from pydantic import ValidationError
 
-from agent.planner import Planner, ActionSchema
+from agent.planner import Planner, ActionSchema, _MAX_HISTORY
 from agent.state import AgentState
 
 
@@ -102,11 +102,10 @@ class TestPlannerBuildMessage(unittest.TestCase):
         ]
         state = AgentState(goal="test", history=steps, step_count=10)
         msg = self.planner._build_message(state)
-        # Chỉ 3 bước cuối xuất hiện
-        self.assertIn("tool_9", msg)
-        self.assertIn("tool_8", msg)
-        self.assertIn("tool_7", msg)
-        self.assertNotIn("tool_6", msg)
+        first_included = len(steps) - _MAX_HISTORY
+        for i in range(first_included, len(steps)):
+            self.assertIn(f"tool_{i}", msg)
+        self.assertNotIn(f"tool_{first_included - 1}", msg)
 
 
 class TestPlannerPlanStep(unittest.TestCase):

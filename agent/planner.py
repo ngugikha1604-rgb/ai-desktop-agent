@@ -18,7 +18,8 @@ log = get_logger(__name__)
 # ── Hằng số ───────────────────────────────────────────────────────────────────
 
 _MAX_HISTORY = 5    # số bước gần nhất gửi cho LLM
-_OBS_TRIM = 150     # ký tự tối đa của observation trong history / observation field
+_OBS_TRIM     = 150   # ký tự tối đa của observation trong history (đã xử lý, tiết kiệm token)
+_CUR_OBS_TRIM = 600   # ký tự tối đa cho observation hiện tại (cần đủ để model đọc data thực)
 _MEM_MAX = 5        # số memory items tối đa inject vào context
 _MIN_RELEVANCE = 0.5  # ngưỡng relevance score để inject memory (tăng từ 0.3)
 
@@ -37,9 +38,9 @@ _CORE_TOOLS: frozenset[str] = frozenset({"get_system_info", "run_command"})
 # Mapping task.type → tools liên quan
 _TYPE_TOOLS: dict[str, frozenset[str]] = {
     "search":      frozenset({"search_file", "read_file"}),
-    "read":        frozenset({"read_file", "get_clipboard", "search_file", "get_active_window"}),
+    "read":        frozenset({"read_file", "get_clipboard", "search_file", "get_active_window", "web_read"}),
     "action":      frozenset({"open_app", "kill_process", "write_file", "browser_action",
-                               "open_url", "search_web", "send_notification", "take_screenshot",
+                               "open_url", "search_web", "web_read", "send_notification", "take_screenshot",
                                "set_clipboard"}),
     "communicate": frozenset({"send_notification", "set_clipboard", "get_clipboard", "open_url"}),
     "process":     frozenset({"get_running_processes", "get_active_window"}),
@@ -50,7 +51,7 @@ _HINT_TOOL_RE = re.compile(
     r"\b(open_app|kill_process|search_file|read_file|write_file"
     r"|get_system_info|get_running_processes|get_active_window|run_command"
     r"|get_clipboard|set_clipboard|take_screenshot|send_notification"
-    r"|open_url|search_web|browser_action)\b"
+    r"|open_url|search_web|web_read|browser_action)\b"
 )
 
 
@@ -144,17 +145,27 @@ class Planner:
 
     @staticmethod
     def _is_stuck(state: AgentState) -> bool:
-        """True nếu 2 bước gần nhất thực hiện cùng tool + args."""
+        """True nếu 2 bước gần nhất là cùng tool + args VÀ không phải retry thành công.
+
+        Không tính stuck nếu bước trước FAILED và bước sau SUCCESS — đó là retry hợp lệ.
+        """
         if len(state.history) < 2:
             return False
-        last = state.history[-1]["action"]
-        prev = state.history[-2]["action"]
-        if last.get("type") != "tool" or prev.get("type") != "tool":
+        last = state.history[-1]
+        prev = state.history[-2]
+        last_action = last["action"]
+        prev_action = prev["action"]
+        if last_action.get("type") != "tool" or prev_action.get("type") != "tool":
             return False
-        return (
-            last.get("tool") == prev.get("tool")
-            and last.get("args") == prev.get("args")
-        )
+        if not (last_action.get("tool") == prev_action.get("tool")
+                and last_action.get("args") == prev_action.get("args")):
+            return False
+        # Retry pattern: bước trước FAILED, bước sau SUCCESS → không phải stuck
+        prev_failed   = str(prev["observation"]).startswith("FAILED:")
+        last_succeeded = not str(last["observation"]).startswith("FAILED:")
+        if prev_failed and last_succeeded:
+            return False
+        return True
 
     # ── Dynamic tool selection ──────────────────────────────────────────
 
@@ -255,9 +266,9 @@ class Planner:
                 lines.append(f"- {act_str} → {obs}")
             parts.append("History:\n" + "\n".join(lines))
 
-        # Observation hiện tại
+        # Observation hiện tại — dùng _CUR_OBS_TRIM (rộng hơn) để model thấy đủ data
         if state.observation:
-            parts.append(f"Observation: {_trim(state.observation, _OBS_TRIM)}")
+            parts.append(f"Observation: {_trim(state.observation, _CUR_OBS_TRIM)}")
 
         return "\n\n".join(parts)
 

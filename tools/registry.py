@@ -44,6 +44,9 @@ from tools.run_command import run_command
 from tools.screenshot import take_screenshot
 from tools.search_file import search_file
 from tools.system_info import get_system_info
+from tools.get_weather import get_weather
+from tools.web_search import web_search
+from tools.web_read import web_read
 from tools.write_file import write_file
 
 
@@ -304,18 +307,84 @@ _SPECS: list[ToolSpec] = [
         name="search_web",
         fn=search_web,
         category="browser",
-        description="Search Google with a query and open results in the browser.",
+        # OUTPUT: chỉ mở trình duyệt, KHÔNG trả data về cho agent.
+        # Dùng khi user muốn tự xem kết quả bằng mắt trong browser.
+        description="Open browser to Google — user sees results visually; agent gets NO text back.",
         when_to_use=(
-            "User wants to search for information on Google. "
-            "Do NOT use open_url with a google.com/search URL — use this instead."
+            "Use ONLY when user explicitly wants to open browser and browse Google themselves. "
+            "Do NOT use this when agent needs to read or answer from the web — use web_search instead."
         ),
-        returns="Confirmation with the search query used.",
+        returns="Confirmation only (no content). Browser opens, user reads manually.",
         args={
             "query": "string, required — Search keywords (extract only the key terms, remove filler words).",
         },
         examples=[
-            {"user": "tìm kiếm học máy là gì", "call": {"tool": "search_web", "args": {"query": "học máy là gì"}}},
-            {"user": "search python tutorial", "call": {"tool": "search_web", "args": {"query": "python tutorial"}}},
+            {"user": "mở google tìm học máy", "call": {"tool": "search_web", "args": {"query": "học máy"}}},
+            {"user": "tìm kiếm python tutorial trên trình duyệt", "call": {"tool": "search_web", "args": {"query": "python tutorial"}}},
+        ],
+    ),
+
+    ToolSpec(
+        name="get_weather",
+        fn=get_weather,
+        category="browser",
+        # OUTPUT: trả thẳng nhiệt độ/độ ẩm/gió từ wttr.in JSON API — không cần web_search hay web_read.
+        # Dùng tool này TRƯỜC, chỉ fallback web_search khi thành phố không tìm thấy.
+        description="Get current weather (temp, humidity, wind) for a city via wttr.in — direct API, no search needed.",
+        when_to_use=(
+            "Use immediately when user asks about weather, temperature, humidity, or wind of any city. "
+            "Do NOT use web_search for weather — get_weather is faster and always returns actual numbers."
+        ),
+        returns="Text with temperature (C), feels-like, description, humidity, wind speed.",
+        args={
+            "city": "string, required — City name in English (e.g. 'Hanoi', 'Ho Chi Minh City', 'London').",
+        },
+        examples=[
+            {"user": "nhiệt độ hà nội hiện tại", "call": {"tool": "get_weather", "args": {"city": "Hanoi"}}},
+            {"user": "thời tiết tp hồ chí minh",    "call": {"tool": "get_weather", "args": {"city": "Ho Chi Minh City"}}},
+            {"user": "hanoi temperature now",          "call": {"tool": "get_weather", "args": {"city": "Hanoi"}}},
+        ],
+    ),
+
+    ToolSpec(
+        name="web_search",
+        fn=web_search,
+        category="browser",
+        # OUTPUT: trả về text title+URL+snippet thực sự → agent đọc và trả lời.
+        # Đây là tool DUY NHẤT có thể lấy thông tin từ internet về cho agent.
+        description="Fetch DuckDuckGo results and RETURN text to agent — agent reads and answers.",
+        when_to_use=(
+            "Use whenever agent must answer a question using internet data: facts, news, prices, weather. "
+            "Do NOT use search_web when agent needs to read content — search_web opens browser only, returns nothing."
+        ),
+        returns="Text with [N] title / url / snippet for each result — agent reads this directly.",
+        args={
+            "query":       "string, required — Search query in the most effective keywords.",
+            "max_results": "integer, optional — Number of results to return (default 5, max 10).",
+        },
+        examples=[
+            {"user": "thời tiết hà nội hôm nay", "call": {"tool": "web_search", "args": {"query": "Hanoi weather today"}}},
+            {"user": "bitcoin giá bao nhiêu", "call": {"tool": "web_search", "args": {"query": "bitcoin price usd"}}},
+            {"user": "python list comprehension là gì", "call": {"tool": "web_search", "args": {"query": "python list comprehension explained"}}},
+        ],
+    ),
+
+    ToolSpec(
+        name="web_read",
+        fn=web_read,
+        category="browser",
+        description="Read and return the text content of a specific URL.",
+        when_to_use=(
+            "Use when you have a specific URL (from web_search results) and need to read the full content "
+            "to answer the user's question accurately."
+        ),
+        returns="Full text content of the webpage.",
+        args={
+            "url": "string, required — The URL to read.",
+        },
+        preconditions=["web_search"],
+        examples=[
+            {"user": "đọc trang web này", "call": {"tool": "web_read", "args": {"url": "https://example.com"}}},
         ],
     ),
 

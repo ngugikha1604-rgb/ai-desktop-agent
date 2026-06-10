@@ -56,6 +56,7 @@ class OllamaClient:
         num_predict: int = 512,
         caveman: bool = False,
         json_mode: bool = False,
+        think: bool = False,
     ) -> str:
         log.debug("[Ollama:%s] Đang xử lý...", self.model)
 
@@ -73,6 +74,7 @@ class OllamaClient:
                 {"role": "user",   "content": user_message.strip()},
             ],
             "stream": False,
+            "think": think,   # Qwen3: False = tắt chain-of-thought, giữ output nhanh
             "options": {
                 "temperature": 0.2,
                 "num_predict": num_predict,

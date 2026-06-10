@@ -164,6 +164,9 @@ class MemoryExtractor:
             if fence:
                 cleaned = fence.group(1).strip()
 
+            if not cleaned:  # model trả rỗng hoặc empty fence → không có gì để lưu
+                return []
+
             items = json.loads(cleaned)
             if not isinstance(items, list):
                 return []

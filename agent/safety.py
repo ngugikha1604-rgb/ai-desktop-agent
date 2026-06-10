@@ -151,6 +151,9 @@ class SafetyChecker:
         "read_file",
         "search_web",
         "open_url",
+        "web_search",
+        "web_read",
+        "get_weather",
     })
 
     # Tool CAUTION (side effect nhỏ, có thể undo)

@@ -1,4 +1,4 @@
-"""AgentWorker — chạy Agent.run() trong QThread với timeout 60 giây."""
+"""AgentWorker — chạy Agent.run() trong QThread với timeout 300 giây."""
 from __future__ import annotations
 
 import concurrent.futures
@@ -27,7 +27,7 @@ class AgentWorker(QThread):
                 self.finished.emit(result)
             except concurrent.futures.TimeoutError:
                 self.failed.emit(
-                    "Yêu cầu hết thời gian xử lý (60 giây). Vui lòng thử lại."
+                    f"Yêu cầu hết thời gian xử lý ({_TIMEOUT_SECONDS} giây). Vui lòng thử lại."
                 )
             except Exception as exc:
                 self.failed.emit(str(exc))

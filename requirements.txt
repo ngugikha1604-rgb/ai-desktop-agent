@@ -12,3 +12,7 @@ pyautogui
 faster-whisper
 sounddevice
 numpy
+# Web search + read (no API key required)
+ddgs
+requests
+beautifulsoup4
