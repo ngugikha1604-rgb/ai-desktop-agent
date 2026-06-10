@@ -37,10 +37,11 @@ _CORE_TOOLS: frozenset[str] = frozenset({"get_system_info", "run_command"})
 
 # Mapping task.type → tools liên quan
 _TYPE_TOOLS: dict[str, frozenset[str]] = {
-    "search":      frozenset({"search_file", "read_file"}),
-    "read":        frozenset({"read_file", "get_clipboard", "search_file", "get_active_window", "web_read"}),
+    "search":      frozenset({"search_file", "read_file", "web_search", "get_weather"}),
+    "read":        frozenset({"read_file", "get_clipboard", "search_file", "get_active_window", "web_read", "web_search"}),
     "action":      frozenset({"open_app", "kill_process", "write_file", "browser_action",
-                               "open_url", "search_web", "web_read", "send_notification", "take_screenshot",
+                               "open_url", "search_web", "web_search", "web_read",
+                               "get_weather", "send_notification", "take_screenshot",
                                "set_clipboard"}),
     "communicate": frozenset({"send_notification", "set_clipboard", "get_clipboard", "open_url"}),
     "process":     frozenset({"get_running_processes", "get_active_window"}),
@@ -51,7 +52,7 @@ _HINT_TOOL_RE = re.compile(
     r"\b(open_app|kill_process|search_file|read_file|write_file"
     r"|get_system_info|get_running_processes|get_active_window|run_command"
     r"|get_clipboard|set_clipboard|take_screenshot|send_notification"
-    r"|open_url|search_web|web_read|browser_action)\b"
+    r"|open_url|search_web|web_search|web_read|get_weather|browser_action)\b"
 )
 
 
