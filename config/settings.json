@@ -1,6 +1,6 @@
 {
   "llm_provider": "ollama",
-  "planner_model": "qwen3:4b",
+  "planner_model": "qwen2.5:3b",
   "analyzer_model": "qwen2.5:0.5b",
   "response_model": "qwen2.5:0.5b",
   "ollama_base_url": "http://localhost:11434",
@@ -9,7 +9,7 @@
   "database": "data/memory.db",
   "preferred_microphone": null,
   "stt_model": "base",
-  "num_ctx": 4096,
+  "num_ctx": 8192,
   "num_predict_planner": 256,
   "num_predict_analyzer": 512,
   "num_predict_response": 512,

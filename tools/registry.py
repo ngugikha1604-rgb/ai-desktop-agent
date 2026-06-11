@@ -485,3 +485,81 @@ def build_prompt_section(tool_names: list[str] | None = None) -> str:
 # Sinh một lần tại import time — tránh rebuild mỗi lần Planner khởi tạo.
 # Nếu thêm tool mới, restart app để PROMPT_SECTION cập nhật.
 PROMPT_SECTION: str = build_prompt_section()
+
+
+def build_tool_schemas(tool_names: list[str] | None = None) -> list[dict]:
+    """Sinh OpenAI-compatible tool schemas cho Ollama native tool calling.
+
+    Mỗi schema gồm: type, function.name, function.description, function.parameters.
+    description = spec.description + câu when_to_use quan trọng nhất.
+
+    Args:
+        tool_names: filter list, None = tất cả tools.
+
+    Returns:
+        List[{type: "function", function: {name, description, parameters}}]
+    """
+    import re as _re
+    specs = _SPECS if tool_names is None else [s for s in _SPECS if s.name in (tool_names or [])]
+    schemas: list[dict] = []
+
+    for spec in specs:
+        # ─ Description: spec.description + câu when_to_use đầu tiên + DO NOT ─
+        desc_parts = [spec.description.rstrip(".")]
+        if spec.when_to_use:
+            sentences = [s.strip() for s in spec.when_to_use.split(".") if s.strip()]
+            # Câu khẳng định (không phải DO NOT)
+            positive = next(
+                (s for s in sentences if "NOT" not in s.upper() and "NEVER" not in s.upper()), ""
+            )
+            if positive:
+                desc_parts.append(positive)
+            # Câu DO NOT / NEVER quan trọng nhất
+            do_not = next(
+                (s for s in sentences if "NOT" in s.upper() or "NEVER" in s.upper()), ""
+            )
+            if do_not:
+                desc_parts.append(do_not)
+        full_desc = ". ".join(desc_parts).rstrip(".") + "."
+
+        # ─ Parameters ─
+        properties: dict[str, dict] = {}
+        required_args: list[str] = []
+
+        for arg_name, arg_desc in spec.args.items():
+            desc_lower = arg_desc.lower()
+
+            # Kiểu dữ liệu
+            if "integer" in desc_lower or ", int" in desc_lower:
+                arg_type = "integer"
+            elif "boolean" in desc_lower or ", bool" in desc_lower:
+                arg_type = "boolean"
+            else:
+                arg_type = "string"
+
+            # Bỏ prefix "type, required/optional — "
+            clean = _re.sub(r"^[\w ,]+?\u2014\s*", "", arg_desc).strip()
+            if not clean:
+                clean = arg_desc
+
+            properties[arg_name] = {"type": arg_type, "description": clean}
+            if "required" in arg_desc.lower():
+                required_args.append(arg_name)
+
+        schema: dict = {
+            "type": "function",
+            "function": {
+                "name": spec.name,
+                "description": full_desc,
+                "parameters": {
+                    "type": "object",
+                    "properties": properties,
+                },
+            },
+        }
+        if required_args:
+            schema["function"]["parameters"]["required"] = required_args
+
+        schemas.append(schema)
+
+    return schemas

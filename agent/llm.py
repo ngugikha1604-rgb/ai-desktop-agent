@@ -5,6 +5,7 @@ Hai model riêng biệt:
   - response_model (qwen2.5:0.5b): format câu trả lời
 """
 import json
+import re
 import urllib.error
 import urllib.request
 
@@ -48,6 +49,84 @@ class OllamaClient:
     def __init__(self, model: str, base_url: str = _OLLAMA_BASE) -> None:
         self.model = model
         self.base_url = base_url
+
+    def chat_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        num_predict: int = 256,
+    ) -> dict:
+        """Gọi Ollama với native tool calling.
+
+        Args:
+            messages:    Danh sách message theo format Ollama/OpenAI.
+            tools:       JSON schema các tool (OpenAI-compatible).
+            num_predict: Số token tối đa.
+
+        Returns:
+            message dict: {"role": "assistant", "content": "...", "tool_calls": [...]}
+            tool_calls = [] hoặc None → model trả lời trực tiếp (finish).
+        """
+        log.debug("[Ollama:%s] Đang xử lý...", self.model)
+
+        s = load_settings()
+        num_ctx = s.get("num_ctx", 4096)
+
+        payload_dict = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "stream": False,
+            "think": False,
+            "options": {
+                "temperature": 0.2,
+                "num_predict": num_predict,
+                "num_ctx": num_ctx,
+            },
+        }
+
+        payload = json.dumps(payload_dict).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+                if resp.status >= 500:
+                    raise OllamaServerError(f"HTTP {resp.status}")
+                body = json.loads(resp.read().decode("utf-8"))
+            msg = body.get("message") or {}
+            tc  = msg.get("tool_calls") or []
+
+            # Qwen3 known bug: tool_calls duoc tra nhung content chua thinking tokens
+            # Strip thinking tokens khoi content neu co ca tool_calls lan content
+            content = msg.get("content") or ""
+            if tc and content:
+                # Bỏ thinking block nếu còn sót
+                content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
+                msg = dict(msg)
+                msg["content"] = content
+
+            log.debug(
+                "[Ollama:%s] Xong — tool_calls=%s content=%d ky tu",
+                self.model, bool(tc), len(msg.get("content") or ""),
+            )
+            return msg
+        except (OllamaServerError, OllamaConnectionError, OllamaModelNotFoundError):
+            raise
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise OllamaModelNotFoundError(self.model) from e
+            if e.code >= 500:
+                raise OllamaServerError(f"HTTP {e.code}") from e
+            raise OllamaConnectionError(f"HTTP {e.code}") from e
+        except urllib.error.URLError as e:
+            raise OllamaConnectionError(str(e)) from e
+        except OSError as e:
+            raise OllamaConnectionError(str(e)) from e
 
     def generate(
         self,

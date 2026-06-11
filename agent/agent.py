@@ -22,7 +22,7 @@ from agent.task_analyzer import TaskAnalyzer
 
 log = get_logger(__name__)
 
-_OBS_MAX   = 400   # ký tự tối đa của observation lưu vào state
+_OBS_MAX   = 800   # ky tu toi da cua observation luu vao state (tang de tool message du data)
 _OBS_LOG   = 120   # ký tự tối đa khi in observation ra log
 
 # Visual separators — dùng lại nhiều chỗ
@@ -214,13 +214,12 @@ class Agent:
             log.warning("  ✘  vượt max_steps=%d", max_steps)
             return "Tôi đã thử nhiều bước nhưng chưa hoàn thành được yêu cầu."
 
-        # ── Summary call ──────────────────────────────────────────────────
-        state.observation = self._build_summary_obs(state)
+        # -- Summary call -------------------------------------------------------
+        # Native tool calling: model thay full tool history qua _build_messages
+        # -> khong can _build_summary_obs(), goi plan_step truc tiep
         log.info(_STEP)
-        log.debug("  obs      → %s", state.observation[:_OBS_LOG])
-
-        t_sum = time.perf_counter()
-        action = self.planner.plan_step(state)
+        t_sum       = time.perf_counter()
+        action      = self.planner.plan_step(state)
         elapsed_sum = time.perf_counter() - t_sum
 
         if action.get("type") == "finish":
@@ -265,24 +264,6 @@ class Agent:
         label = "done" if ok else "error"
         log.info("  %s  %.1fs", label, time.perf_counter() - t0)
         log.info(_SEP)
-
-    def _build_summary_obs(self, state: AgentState) -> str:
-        """Tổng hợp kết quả từ history để planner tổng kết chính xác."""
-        successful_obs = [
-            h["observation"]
-            for h in state.history
-            if not h["observation"].startswith("FAILED:")
-        ]
-        parts: list[str] = []
-        if successful_obs:
-            # Tăng từ 150 → 400 để planner thấy đủ snippet (web_search, read_file...)
-            trimmed = [o[:400] for o in successful_obs[-3:]]
-            parts.append("Results: " + " | ".join(trimmed))
-        if state.has_tasks:
-            failed = [t["task"] for t in state.tasks if t["status"] == "failed"]
-            if failed:
-                parts.append("Failed: " + "; ".join(failed))
-        return " ".join(parts) if parts else ""
 
     def _get_user_name(self) -> str:
         try:
