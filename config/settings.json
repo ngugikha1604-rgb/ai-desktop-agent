@@ -17,7 +17,7 @@
   "history_limit": 6,
   "max_agent_steps": 10,
   "max_task_attempts": 3,
-  "tesseract_cmd": null,
+  "tesseract_cmd": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
   "ui": {
     "hotkey_modifiers": "ctrl+alt",
     "hotkey_key": "j",
