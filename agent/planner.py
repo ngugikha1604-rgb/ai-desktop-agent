@@ -37,13 +37,18 @@ _STOPWORDS = {
 _CORE_TOOLS: frozenset[str] = frozenset({"get_system_info", "run_command"})
 
 _TYPE_TOOLS: dict[str, frozenset[str]] = {
-    "search":      frozenset({"search_file", "read_file", "web_search", "get_weather"}),
+    "search":      frozenset({"search_file", "read_file", "web_search", "get_weather",
+                               "list_directory", "screen_ocr"}),
     "read":        frozenset({"read_file", "get_clipboard", "search_file",
-                               "get_active_window", "web_read", "web_search"}),
+                               "get_active_window", "web_read", "web_search",
+                               "list_directory", "screen_ocr"}),
     "action":      frozenset({"open_app", "kill_process", "write_file", "browser_action",
                                "open_url", "search_web", "web_search", "web_read",
                                "get_weather", "send_notification", "take_screenshot",
-                               "set_clipboard"}),
+                               "set_clipboard", "manage_file_folder", "compress_decompress",
+                               # GUI automation
+                               "mouse_click", "type_text", "key_press",
+                               "screen_ocr", "get_screen_size"}),
     "communicate": frozenset({"send_notification", "set_clipboard", "get_clipboard", "open_url"}),
     "process":     frozenset({"get_running_processes", "get_active_window"}),
 }
@@ -52,7 +57,9 @@ _HINT_TOOL_RE = re.compile(
     r"\b(open_app|kill_process|search_file|read_file|write_file"
     r"|get_system_info|get_running_processes|get_active_window|run_command"
     r"|get_clipboard|set_clipboard|take_screenshot|send_notification"
-    r"|open_url|search_web|web_search|web_read|get_weather|browser_action)\b"
+    r"|open_url|search_web|web_search|web_read|get_weather|browser_action"
+    r"|manage_file_folder|compress_decompress|list_directory"
+    r"|screen_ocr|get_screen_size|mouse_click|type_text|key_press)\b"
 )
 
 
@@ -214,7 +221,6 @@ class Planner:
             obs    = h["observation"]
 
             if action.get("type") == "tool":
-                # Assistant da goi tool nay
                 messages.append({
                     "role": "assistant",
                     "content": "",
@@ -225,7 +231,6 @@ class Planner:
                         }
                     }],
                 })
-                # Ket qua tra ve tu tool
                 messages.append({
                     "role":    "tool",
                     "content": str(obs)[:_OBS_MSG_TRIM],

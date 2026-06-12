@@ -9,5 +9,5 @@ class TestImports(unittest.TestCase):
     def test_tool_registry(self):
         from tools import TOOL_REGISTRY
         self.assertIn("open_app", TOOL_REGISTRY)
-        self.assertEqual(len(TOOL_REGISTRY), 16)
+        self.assertEqual(len(TOOL_REGISTRY), 21)
 

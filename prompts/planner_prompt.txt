@@ -12,6 +12,8 @@ WEB tools decision — ask: does the agent need to READ and ANSWER?
 - web_search: ALWAYS English keywords. "gia bitcoin" -> "bitcoin price usd".
 - "kiem tra", "tim hieu", "cho biet", "doc noi dung" -> agent phai tra loi -> web_search or web_read.
 - "mo", "vao trang" (khong doc/bao cao) -> open_url or search_web.
+- File/Folder copy/move/delete/rename/create: ALWAYS use manage_file_folder. NEVER use run_command.
+- Compress/Decompress (zip/unzip): ALWAYS use compress_decompress. NEVER use run_command.
 
 --- WHEN TO ANSWER DIRECTLY ---
 - Greetings, casual questions (no tool needed).

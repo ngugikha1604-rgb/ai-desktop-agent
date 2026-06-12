@@ -16,3 +16,8 @@ numpy
 ddgs
 requests
 beautifulsoup4
+# File ops
+send2trash
+# GUI Automation — OCR (cần Tesseract binary riêng)
+# Tải binary: https://github.com/UB-Mannheim/tesseract/wiki
+pytesseract

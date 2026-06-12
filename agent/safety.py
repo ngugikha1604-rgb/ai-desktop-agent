@@ -60,14 +60,22 @@ class RiskAssessment:
     def display(self) -> str:
         """tool_name("key_arg") — hiển thị ngắn gọn trong confirm dialog."""
         _KEY: dict[str, str] = {
-            "kill_process":  "name_or_pid",
-            "write_file":    "path",
-            "run_command":   "command",
-            "open_app":      "app_name",
-            "open_url":      "url",
-            "search_web":    "query",
-            "set_clipboard": "text",
-            "browser_action":"action",
+            "kill_process":       "name_or_pid",
+            "write_file":          "path",
+            "run_command":         "command",
+            "open_app":            "app_name",
+            "open_url":            "url",
+            "search_web":          "query",
+            "set_clipboard":       "text",
+            "browser_action":      "action",
+            "manage_file_folder":  "src_path",
+            "compress_decompress": "path",
+            # GUI automation
+            "mouse_click":         "x",
+            "type_text":           "text",
+            "key_press":           "keys",
+            # File
+            "list_directory":      "path",
         }
         key = _KEY.get(self.tool)
         if key and key in self.args:
@@ -130,6 +138,9 @@ _SAFE_CMD_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Tổ hợp phím lock màn hình
+_LOCK_KEYS_RE = re.compile(r"\bwin\s*\+\s*l\b", re.IGNORECASE)
+
 
 # ── SafetyChecker ─────────────────────────────────────────────────────────────
 
@@ -154,6 +165,11 @@ class SafetyChecker:
         "web_search",
         "web_read",
         "get_weather",
+        # GUI — read-only
+        "screen_ocr",
+        "get_screen_size",
+        # File — read-only
+        "list_directory",
     })
 
     # Tool CAUTION (side effect nhỏ, có thể undo)
@@ -186,6 +202,17 @@ class SafetyChecker:
             return cls._write_file(args)
         if tool_name == "run_command":
             return cls._run_command(args)
+        if tool_name == "manage_file_folder":
+            return cls._manage_file_folder(args)
+        if tool_name == "compress_decompress":
+            return cls._compress_decompress(args)
+        # GUI automation
+        if tool_name == "mouse_click":
+            return cls._mouse_click(args)
+        if tool_name == "type_text":
+            return cls._type_text(args)
+        if tool_name == "key_press":
+            return cls._key_press(args)
 
         # Tool không xác định → DANGEROUS (fail-safe: xác nhận trước)
         return RiskAssessment(
@@ -228,7 +255,6 @@ class SafetyChecker:
                 RiskLevel.DANGEROUS, "write_file", args,
                 f"Sẽ ghi đè (overwrite) file: '{path}'.",
             )
-        # append=True → chỉ thêm vào cuối, ít rủi ro hơn
         return RiskAssessment(
             RiskLevel.CAUTION, "write_file", args,
             f"Thêm nội dung vào cuối file: '{path}'.",
@@ -251,4 +277,92 @@ class SafetyChecker:
         return RiskAssessment(
             RiskLevel.DANGEROUS, "run_command", args,
             f"Lệnh shell có thể thay đổi hệ thống: '{cmd[:80]}'.",
+        )
+
+    @classmethod
+    def _manage_file_folder(cls, args: dict) -> RiskAssessment:
+        action    = str(args.get("action", "")).strip().lower()
+        src_path  = str(args.get("src_path", "")).strip()
+        dest_path = str(args.get("dest_path", "")).strip()
+
+        if _SYSTEM_PATH_RE.match(src_path) or (dest_path and _SYSTEM_PATH_RE.match(dest_path)):
+            return RiskAssessment(
+                RiskLevel.CRITICAL, "manage_file_folder", args,
+                f"Thao tác file/thư mục trên đường dẫn hệ thống: '{src_path}'.",
+            )
+
+        if action in {"copy", "create_folder"}:
+            return RiskAssessment(
+                RiskLevel.CAUTION, "manage_file_folder", args,
+                f"Sẽ thực hiện '{action}' với '{src_path}'.",
+            )
+        if action in {"move", "rename", "delete"}:
+            return RiskAssessment(
+                RiskLevel.DANGEROUS, "manage_file_folder", args,
+                f"Sẽ thực hiện '{action}' với '{src_path}'. Thao tác thay đổi hoặc xóa dữ liệu.",
+            )
+        return RiskAssessment(
+            RiskLevel.DANGEROUS, "manage_file_folder", args,
+            f"Hành động '{action}' chưa được phân loại rõ ràng.",
+        )
+
+    @classmethod
+    def _compress_decompress(cls, args: dict) -> RiskAssessment:
+        action    = str(args.get("action", "")).strip().lower()
+        path      = str(args.get("path", "")).strip()
+        dest_path = str(args.get("dest_path", "")).strip()
+
+        if _SYSTEM_PATH_RE.match(path) or (dest_path and _SYSTEM_PATH_RE.match(dest_path)):
+            return RiskAssessment(
+                RiskLevel.CRITICAL, "compress_decompress", args,
+                f"Thao tác nén/giải nén trên đường dẫn hệ thống: '{path}'.",
+            )
+
+        if action == "zip":
+            return RiskAssessment(
+                RiskLevel.CAUTION, "compress_decompress", args,
+                f"Sẽ nén '{path}'.",
+            )
+        if action == "unzip":
+            return RiskAssessment(
+                RiskLevel.DANGEROUS, "compress_decompress", args,
+                f"Sẽ giải nén '{path}'. Có thể ghi đè file hiện có.",
+            )
+        return RiskAssessment(
+            RiskLevel.DANGEROUS, "compress_decompress", args,
+            f"Hành động '{action}' chưa được phân loại rõ ràng.",
+        )
+
+    @classmethod
+    def _mouse_click(cls, args: dict) -> RiskAssessment:
+        x      = args.get("x", "?")
+        y      = args.get("y", "?")
+        button = args.get("button", "left")
+        double = args.get("double", False)
+        action = "Double-click" if double else "Click"
+        return RiskAssessment(
+            RiskLevel.DANGEROUS, "mouse_click", args,
+            f"{action} chuột {button} tại tọa độ ({x}, {y}) trên màn hình.",
+        )
+
+    @classmethod
+    def _type_text(cls, args: dict) -> RiskAssessment:
+        text    = str(args.get("text", ""))
+        preview = text[:50] + "…" if len(text) > 50 else text
+        return RiskAssessment(
+            RiskLevel.DANGEROUS, "type_text", args,
+            f"Sẽ gõ vào ứng dụng đang focus: '{preview}'.",
+        )
+
+    @classmethod
+    def _key_press(cls, args: dict) -> RiskAssessment:
+        keys = str(args.get("keys", ""))
+        if _LOCK_KEYS_RE.search(keys):
+            return RiskAssessment(
+                RiskLevel.DANGEROUS, "key_press", args,
+                f"Tổ hợp '{keys}' sẽ khóa màn hình Windows.",
+            )
+        return RiskAssessment(
+            RiskLevel.DANGEROUS, "key_press", args,
+            f"Sẽ nhấn phím: '{keys}'.",
         )

@@ -48,6 +48,10 @@ from tools.get_weather import get_weather
 from tools.web_search import web_search
 from tools.web_read import web_read
 from tools.write_file import write_file
+from tools.manage_file_folder import manage_file_folder
+from tools.compress_decompress import compress_decompress
+from tools.list_directory import list_directory
+from tools.gui_automation import get_screen_size, screen_ocr, mouse_click, type_text, key_press
 
 
 # ── Registry definitions ──────────────────────────────────────────────────────
@@ -60,15 +64,16 @@ _SPECS: list[ToolSpec] = [
         name="open_app",
         fn=open_app,
         category="app",
-        description="Open an installed application by name or alias.",
-        when_to_use="User wants to launch a program (Chrome, VS Code, Notepad, Spotify, Discord...).",
+        description="Open an installed application by name or alias. Dynamically scans Windows Start Menu and Registry if not in default aliases.",
+        when_to_use="User wants to launch any program (Chrome, VS Code, Notepad, Spotify, Discord, Unikey, Word, Excel...).",
         returns="Confirmation message with resolved path.",
         args={
-            "app_name": "string, required — Application name or alias (e.g. 'chrome', 'vscode', 'notepad').",
+            "app_name": "string, required — Application name or alias (e.g. 'chrome', 'vscode', 'notepad', 'unikey').",
         },
         examples=[
             {"user": "mở chrome", "call": {"tool": "open_app", "args": {"app_name": "chrome"}}},
             {"user": "mở VS Code", "call": {"tool": "open_app", "args": {"app_name": "vscode"}}},
+            {"user": "mở unikey", "call": {"tool": "open_app", "args": {"app_name": "unikey"}}},
         ],
     ),
 
@@ -146,6 +151,60 @@ _SPECS: list[ToolSpec] = [
         ],
     ),
 
+    ToolSpec(
+        name="list_directory",
+        fn=list_directory,
+        category="filesystem",
+        description="List all files and subdirectories in a folder with name, size, and modification date.",
+        when_to_use="User wants to see folder contents, browse a directory, or check what files exist at a path.",
+        returns="Sorted list of files and folders with type icon, size, and modification date.",
+        args={
+            "path":        "string, required — Absolute path to the directory.",
+            "show_hidden": "boolean, optional — Include hidden files/folders (default: false).",
+        },
+        examples=[
+            {"user": "xem nội dung thư mục D:\\projects", "call": {"tool": "list_directory", "args": {"path": "D:\\projects"}}},
+            {"user": "có gì trong Desktop?", "call": {"tool": "list_directory", "args": {"path": "C:\\Users\\ngugi\\Desktop"}}},
+        ],
+    ),
+
+    ToolSpec(
+        name="manage_file_folder",
+        fn=manage_file_folder,
+        category="filesystem",
+        description="Safely perform operations on files and folders: copy, move, delete, rename, or create folders using Python.",
+        when_to_use="User wants to copy, move, delete, rename a file/folder, or create a folder. Always prefer this over run_command.",
+        returns="Confirmation message with detailed operation results.",
+        args={
+            "action":    "string, required — Action: 'copy', 'move', 'delete', 'rename', 'create_folder'.",
+            "src_path":  "string, required — Source path (or folder path to create).",
+            "dest_path": "string, optional — Destination path (required for copy, move, rename).",
+        },
+        examples=[
+            {"user": "sao chép file C:\\data.txt sang D:\\backup.txt", "call": {"tool": "manage_file_folder", "args": {"action": "copy", "src_path": "C:\\data.txt", "dest_path": "D:\\backup.txt"}}},
+            {"user": "xóa thư mục C:\\temp", "call": {"tool": "manage_file_folder", "args": {"action": "delete", "src_path": "C:\\temp"}}},
+            {"user": "tạo thư mục D:\\projects\\python", "call": {"tool": "manage_file_folder", "args": {"action": "create_folder", "src_path": "D:\\projects\\python"}}},
+        ],
+    ),
+
+    ToolSpec(
+        name="compress_decompress",
+        fn=compress_decompress,
+        category="filesystem",
+        description="Compress files/folders into a zip archive or decompress (unzip) a zip archive using Python.",
+        when_to_use="User wants to zip a file/folder or unzip/extract a zip file. Always prefer this over run_command.",
+        returns="Confirmation of the compression or decompression operation with path details.",
+        args={
+            "action":    "string, required — 'zip' to compress, 'unzip' to extract.",
+            "path":      "string, required — Path to file/folder to zip, or zip file to unzip.",
+            "dest_path": "string, optional — Output zip path (for zip) or extraction folder (for unzip).",
+        },
+        examples=[
+            {"user": "nén thư mục C:\\data thành file zip", "call": {"tool": "compress_decompress", "args": {"action": "zip", "path": "C:\\data"}}},
+            {"user": "giải nén file C:\\archive.zip", "call": {"tool": "compress_decompress", "args": {"action": "unzip", "path": "C:\\archive.zip"}}},
+        ],
+    ),
+
     # ── System ────────────────────────────────────────────────────────────────
 
     ToolSpec(
@@ -196,7 +255,6 @@ _SPECS: list[ToolSpec] = [
         args={},
         examples=[
             {"user": "cửa sổ nào đang active?", "call": {"tool": "get_active_window", "args": {}}},
-            {"user": "ứng dụng nào đang được focus?", "call": {"tool": "get_active_window", "args": {}}},
         ],
     ),
 
@@ -255,11 +313,14 @@ _SPECS: list[ToolSpec] = [
         name="take_screenshot",
         fn=take_screenshot,
         category="screen",
-        description="Take a screenshot of the current screen.",
-        when_to_use="User wants to capture/screenshot the screen.",
+        description="Take a screenshot of the current screen and save to file.",
+        when_to_use=(
+            "User wants to capture the screen as an image file. "
+            "Use screen_ocr instead if you need to READ text from the screen."
+        ),
         returns="Confirmation with saved path of the screenshot file.",
         args={
-            "save_path": "string, optional — Absolute path to save the image (default: auto-generated in Desktop).",
+            "save_path": "string, optional — Absolute path to save the image (default: auto-generated on Desktop).",
         },
         examples=[
             {"user": "chụp màn hình", "call": {"tool": "take_screenshot", "args": {}}},
@@ -279,6 +340,104 @@ _SPECS: list[ToolSpec] = [
         },
         examples=[
             {"user": "gửi thông báo 'Xong rồi'", "call": {"tool": "send_notification", "args": {"title": "Agent", "message": "Xong rồi"}}},
+        ],
+    ),
+
+    # ── GUI Automation ────────────────────────────────────────────────────────
+
+    ToolSpec(
+        name="get_screen_size",
+        fn=get_screen_size,
+        category="gui",
+        description="Get current screen dimensions in pixels.",
+        when_to_use="Use before mouse_click or screen_ocr to know screen bounds and verify coordinates are valid.",
+        returns="Screen width and height in pixels.",
+        args={},
+        examples=[
+            {"user": "màn hình rộng bao nhiêu px?", "call": {"tool": "get_screen_size", "args": {}}},
+        ],
+    ),
+
+    ToolSpec(
+        name="screen_ocr",
+        fn=screen_ocr,
+        category="gui",
+        description="Capture the screen (full or region) and extract all visible text using OCR.",
+        when_to_use=(
+            "Use when agent needs to READ text visible on screen from ANY application. "
+            "Do NOT use take_screenshot when you need text — use screen_ocr instead."
+        ),
+        returns="Extracted text content from the screen or specified region.",
+        args={
+            "x":      "integer, optional — Left edge of region in px (default: 0).",
+            "y":      "integer, optional — Top edge of region in px (default: 0).",
+            "width":  "integer, optional — Region width in px (default: 0 = full screen).",
+            "height": "integer, optional — Region height in px (default: 0 = full screen).",
+        },
+        examples=[
+            {"user": "đọc text trên màn hình", "call": {"tool": "screen_ocr", "args": {}}},
+            {"user": "OCR vùng trên cùng màn hình", "call": {"tool": "screen_ocr", "args": {"x": 0, "y": 0, "width": 1920, "height": 150}}},
+        ],
+    ),
+
+    ToolSpec(
+        name="mouse_click",
+        fn=mouse_click,
+        category="gui",
+        description="Click the mouse at specific screen coordinates.",
+        when_to_use=(
+            "Use to interact with any UI element: buttons, menus, checkboxes, input fields. "
+            "Use screen_ocr or take_screenshot first to find the correct coordinates."
+        ),
+        returns="Confirmation of click action performed.",
+        args={
+            "x":      "integer, required — Horizontal coordinate (px from left edge).",
+            "y":      "integer, required — Vertical coordinate (px from top edge).",
+            "button": "string, optional — 'left' (default), 'right', or 'middle'.",
+            "double": "boolean, optional — True for double-click (default: false).",
+        },
+        preconditions=["screen_ocr", "take_screenshot"],
+        examples=[
+            {"user": "click vào nút OK", "call": {"tool": "mouse_click", "args": {"x": 640, "y": 400}}},
+            {"user": "right-click tại (200, 300)", "call": {"tool": "mouse_click", "args": {"x": 200, "y": 300, "button": "right"}}},
+        ],
+    ),
+
+    ToolSpec(
+        name="type_text",
+        fn=type_text,
+        category="gui",
+        description="Type text into the currently focused input field, with full Unicode and Vietnamese support.",
+        when_to_use=(
+            "Use after clicking on an input field to enter text. "
+            "Supports all characters including tiếng Việt. "
+            "Do NOT use key_press for typing multiple characters."
+        ),
+        returns="Confirmation of text typed with character count.",
+        args={
+            "text": "string, required — Text to type (supports Unicode, tiếng Việt, emoji).",
+        },
+        preconditions=["mouse_click"],
+        examples=[
+            {"user": "gõ 'Hello World' vào ô input", "call": {"tool": "type_text", "args": {"text": "Hello World"}}},
+            {"user": "nhập email vào form", "call": {"tool": "type_text", "args": {"text": "example@gmail.com"}}},
+        ],
+    ),
+
+    ToolSpec(
+        name="key_press",
+        fn=key_press,
+        category="gui",
+        description="Press a keyboard key or shortcut combination.",
+        when_to_use="Use for keyboard shortcuts and special keys: Enter, Escape, Tab, Ctrl+C, Ctrl+V, Alt+Tab, Win+D, Ctrl+Z, F5, etc.",
+        returns="Confirmation of key press.",
+        args={
+            "keys": "string, required — Key or combination, e.g. 'enter', 'escape', 'ctrl+c', 'alt+tab', 'win+d', 'ctrl+shift+t', 'f5'.",
+        },
+        examples=[
+            {"user": "nhấn Enter", "call": {"tool": "key_press", "args": {"keys": "enter"}}},
+            {"user": "copy text đang chọn", "call": {"tool": "key_press", "args": {"keys": "ctrl+c"}}},
+            {"user": "minimize tất cả cửa sổ", "call": {"tool": "key_press", "args": {"keys": "win+d"}}},
         ],
     ),
 
@@ -307,8 +466,6 @@ _SPECS: list[ToolSpec] = [
         name="search_web",
         fn=search_web,
         category="browser",
-        # OUTPUT: chỉ mở trình duyệt, KHÔNG trả data về cho agent.
-        # Dùng khi user muốn tự xem kết quả bằng mắt trong browser.
         description="Open browser to Google — user sees results visually; agent gets NO text back.",
         when_to_use=(
             "Use ONLY when user explicitly wants to open browser and browse Google themselves. "
@@ -316,11 +473,10 @@ _SPECS: list[ToolSpec] = [
         ),
         returns="Confirmation only (no content). Browser opens, user reads manually.",
         args={
-            "query": "string, required — Search keywords (extract only the key terms, remove filler words).",
+            "query": "string, required — Search keywords.",
         },
         examples=[
             {"user": "mở google tìm học máy", "call": {"tool": "search_web", "args": {"query": "học máy"}}},
-            {"user": "tìm kiếm python tutorial trên trình duyệt", "call": {"tool": "search_web", "args": {"query": "python tutorial"}}},
         ],
     ),
 
@@ -328,8 +484,6 @@ _SPECS: list[ToolSpec] = [
         name="get_weather",
         fn=get_weather,
         category="browser",
-        # OUTPUT: trả thẳng nhiệt độ/độ ẩm/gió từ wttr.in JSON API — không cần web_search hay web_read.
-        # Dùng tool này TRƯỜC, chỉ fallback web_search khi thành phố không tìm thấy.
         description="Get current weather (temp, humidity, wind) for a city via wttr.in — direct API, no search needed.",
         when_to_use=(
             "Use immediately when user asks about weather, temperature, humidity, or wind of any city. "
@@ -341,8 +495,7 @@ _SPECS: list[ToolSpec] = [
         },
         examples=[
             {"user": "nhiệt độ hà nội hiện tại", "call": {"tool": "get_weather", "args": {"city": "Hanoi"}}},
-            {"user": "thời tiết tp hồ chí minh",    "call": {"tool": "get_weather", "args": {"city": "Ho Chi Minh City"}}},
-            {"user": "hanoi temperature now",          "call": {"tool": "get_weather", "args": {"city": "Hanoi"}}},
+            {"user": "thời tiết tp hồ chí minh", "call": {"tool": "get_weather", "args": {"city": "Ho Chi Minh City"}}},
         ],
     ),
 
@@ -350,22 +503,18 @@ _SPECS: list[ToolSpec] = [
         name="web_search",
         fn=web_search,
         category="browser",
-        # OUTPUT: trả về text title+URL+snippet thực sự → agent đọc và trả lời.
-        # Đây là tool DUY NHẤT có thể lấy thông tin từ internet về cho agent.
         description="Fetch DuckDuckGo results and RETURN text to agent — agent reads and answers.",
         when_to_use=(
-            "Use whenever agent must answer a question using internet data: facts, news, prices, weather. "
-            "Do NOT use search_web when agent needs to read content — search_web opens browser only, returns nothing."
+            "Use whenever agent must answer a question using internet data: facts, news, prices. "
+            "Do NOT use search_web when agent needs to read content — search_web opens browser only."
         ),
-        returns="Text with [N] title / url / snippet for each result — agent reads this directly.",
+        returns="Text with title / url / snippet for each result — agent reads this directly.",
         args={
-            "query":       "string, required — Search query in the most effective keywords.",
-            "max_results": "integer, optional — Number of results to return (default 5, max 10).",
+            "query":       "string, required — Search query in effective keywords.",
+            "max_results": "integer, optional — Number of results (default 5, max 10).",
         },
         examples=[
-            {"user": "thời tiết hà nội hôm nay", "call": {"tool": "web_search", "args": {"query": "Hanoi weather today"}}},
             {"user": "bitcoin giá bao nhiêu", "call": {"tool": "web_search", "args": {"query": "bitcoin price usd"}}},
-            {"user": "python list comprehension là gì", "call": {"tool": "web_search", "args": {"query": "python list comprehension explained"}}},
         ],
     ),
 
@@ -392,15 +541,14 @@ _SPECS: list[ToolSpec] = [
         name="browser_action",
         fn=browser_action,
         category="browser",
-        description="Control the active browser tab (open new tab, close tab, reload, navigate back/forward).",
-        when_to_use="User wants to control browser tabs or navigation (new tab, close tab, refresh, go back/forward).",
+        description="Control the active browser tab (new tab, close tab, reload, navigate back/forward).",
+        when_to_use="User wants to control browser tabs or navigation (new tab, close, refresh, go back/forward).",
         returns="Confirmation of the browser action performed.",
         args={
             "action": "string, required — One of: 'new_tab', 'close_tab', 'reload', 'back', 'forward'.",
         },
         examples=[
             {"user": "mở tab mới", "call": {"tool": "browser_action", "args": {"action": "new_tab"}}},
-            {"user": "đóng tab này", "call": {"tool": "browser_action", "args": {"action": "close_tab"}}},
             {"user": "reload trang", "call": {"tool": "browser_action", "args": {"action": "reload"}}},
         ],
     ),
@@ -415,18 +563,7 @@ def get_registry_dict() -> dict[str, Callable]:
 
 
 def build_prompt_section(tool_names: list[str] | None = None) -> str:
-    """Sinh AVAILABLE TOOLS section — format compact, tiết kiệm ~70% token.
-
-    Mỗi tool chiếm 3–4 dòng thay vì 12–15 dòng:
-        tool_name(arg1*, arg2)     (* = required)
-          Mô tả + bối cảnh dùng.
-          ⚑ DO NOT rule (nếu có).
-          → {"type":"tool","tool":"...","args":{...}}
-
-    Args:
-        tool_names: Nếu cung cấp, chỉ render các tool có tên trong list này.
-                    None = render toàn bộ (mặc định).
-    """
+    """Sinh AVAILABLE TOOLS section — format compact, tiết kiệm ~70% token."""
     specs = _SPECS if tool_names is None else [s for s in _SPECS if s.name in tool_names]
     blocks: list[str] = []
 
@@ -467,7 +604,7 @@ def build_prompt_section(tool_names: list[str] | None = None) -> str:
         if spec.preconditions:
             lines.append(f"  Requires: {', '.join(spec.preconditions)} to run first.")
 
-        # Dòng cuối: ví dụ compact (JSON không khoảng trắng thừa)
+        # Dòng cuối: ví dụ compact
         if spec.examples:
             ex = spec.examples[0]
             call_json = json.dumps(
@@ -482,39 +619,25 @@ def build_prompt_section(tool_names: list[str] | None = None) -> str:
     return "\n\n".join(blocks)
 
 
-# Sinh một lần tại import time — tránh rebuild mỗi lần Planner khởi tạo.
-# Nếu thêm tool mới, restart app để PROMPT_SECTION cập nhật.
+# Sinh một lần tại import time
 PROMPT_SECTION: str = build_prompt_section()
 
 
 def build_tool_schemas(tool_names: list[str] | None = None) -> list[dict]:
-    """Sinh OpenAI-compatible tool schemas cho Ollama native tool calling.
-
-    Mỗi schema gồm: type, function.name, function.description, function.parameters.
-    description = spec.description + câu when_to_use quan trọng nhất.
-
-    Args:
-        tool_names: filter list, None = tất cả tools.
-
-    Returns:
-        List[{type: "function", function: {name, description, parameters}}]
-    """
+    """Sinh OpenAI-compatible tool schemas cho Ollama native tool calling."""
     import re as _re
     specs = _SPECS if tool_names is None else [s for s in _SPECS if s.name in (tool_names or [])]
     schemas: list[dict] = []
 
     for spec in specs:
-        # ─ Description: spec.description + câu when_to_use đầu tiên + DO NOT ─
         desc_parts = [spec.description.rstrip(".")]
         if spec.when_to_use:
             sentences = [s.strip() for s in spec.when_to_use.split(".") if s.strip()]
-            # Câu khẳng định (không phải DO NOT)
             positive = next(
                 (s for s in sentences if "NOT" not in s.upper() and "NEVER" not in s.upper()), ""
             )
             if positive:
                 desc_parts.append(positive)
-            # Câu DO NOT / NEVER quan trọng nhất
             do_not = next(
                 (s for s in sentences if "NOT" in s.upper() or "NEVER" in s.upper()), ""
             )
@@ -522,14 +645,11 @@ def build_tool_schemas(tool_names: list[str] | None = None) -> list[dict]:
                 desc_parts.append(do_not)
         full_desc = ". ".join(desc_parts).rstrip(".") + "."
 
-        # ─ Parameters ─
         properties: dict[str, dict] = {}
         required_args: list[str] = []
 
         for arg_name, arg_desc in spec.args.items():
             desc_lower = arg_desc.lower()
-
-            # Kiểu dữ liệu
             if "integer" in desc_lower or ", int" in desc_lower:
                 arg_type = "integer"
             elif "boolean" in desc_lower or ", bool" in desc_lower:
@@ -537,7 +657,6 @@ def build_tool_schemas(tool_names: list[str] | None = None) -> list[dict]:
             else:
                 arg_type = "string"
 
-            # Bỏ prefix "type, required/optional — "
             clean = _re.sub(r"^[\w ,]+?\u2014\s*", "", arg_desc).strip()
             if not clean:
                 clean = arg_desc

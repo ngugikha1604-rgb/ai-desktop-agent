@@ -1,98 +1,44 @@
 import unittest
 from unittest.mock import MagicMock, patch
-from pydantic import ValidationError
 
-from agent.planner import Planner, ActionSchema, _MAX_HISTORY
+from agent.planner import Planner, _MAX_HISTORY
 from agent.state import AgentState
 
 
-class TestActionSchema(unittest.TestCase):
-    """Kiểm tra validation schema cho action."""
-
-    def test_tool_action_valid(self):
-        data = {"type": "tool", "tool": "get_system_info", "args": {}}
-        action = ActionSchema.model_validate(data)
-        self.assertEqual(action.type, "tool")
-        self.assertEqual(action.tool, "get_system_info")
-
-    def test_finish_action_valid(self):
-        data = {"type": "finish", "answer": "RAM còn 7GB."}
-        action = ActionSchema.model_validate(data)
-        self.assertEqual(action.type, "finish")
-        self.assertEqual(action.answer, "RAM còn 7GB.")
-
-    def test_tool_missing_name_raises(self):
-        with self.assertRaises(ValidationError):
-            ActionSchema.model_validate({"type": "tool", "args": {}})
-
-    def test_finish_missing_answer_raises(self):
-        with self.assertRaises(ValidationError):
-            ActionSchema.model_validate({"type": "finish"})
-
-    def test_invalid_type_raises(self):
-        with self.assertRaises(ValidationError):
-            ActionSchema.model_validate({"type": "unknown"})
-
-
-class TestPlannerParse(unittest.TestCase):
-    """Kiểm tra _parse() với nhiều dạng LLM output."""
-
-    def setUp(self):
-        self.planner = Planner()
-
-    def test_parse_tool_action(self):
-        raw = '{"type": "tool", "tool": "get_system_info", "args": {}}'
-        result = self.planner._parse(raw)
-        self.assertEqual(result["type"], "tool")
-        self.assertEqual(result["tool"], "get_system_info")
-
-    def test_parse_finish_action(self):
-        raw = '{"type": "finish", "answer": "Xong rồi!"}'
-        result = self.planner._parse(raw)
-        self.assertEqual(result["type"], "finish")
-        self.assertEqual(result["answer"], "Xong rồi!")
-
-    def test_parse_strips_markdown_fence(self):
-        raw = '```json\n{"type": "finish", "answer": "OK"}\n```'
-        result = self.planner._parse(raw)
-        self.assertEqual(result["type"], "finish")
-
-    def test_parse_invalid_raises(self):
-        with self.assertRaises(ValidationError):
-            self.planner._parse('{"type": "tool"}')  # thiếu "tool" field
-
-
-class TestPlannerBuildMessage(unittest.TestCase):
-    """Kiểm tra _build_message tạo context đúng."""
+class TestPlannerBuildMessages(unittest.TestCase):
+    """Kiểm tra _build_messages tạo đúng danh sách message cho Ollama."""
 
     def setUp(self):
         self.planner = Planner()
 
     def test_first_step_no_history(self):
         state = AgentState(goal="Kiểm tra RAM")
-        msg = self.planner._build_message(state)
-        self.assertIn("Goal: Kiểm tra RAM", msg)
-        self.assertNotIn("History:", msg)
-        self.assertNotIn("Observation:", msg)
+        messages = self.planner._build_messages(state, "System Prompt")
+        
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0], {"role": "system", "content": "System Prompt"})
+        self.assertEqual(messages[1], {"role": "user", "content": "Kiểm tra RAM"})
 
-    def test_with_history_and_observation(self):
+    def test_with_history(self):
         state = AgentState(
             goal="Kiểm tra RAM",
-            user_name="Khánh",
             history=[{
                 "action": {"type": "tool", "tool": "get_system_info", "args": {}},
                 "observation": "RAM: 8GB/16GB",
             }],
-            observation="RAM: 8GB/16GB",
             step_count=1,
         )
-        msg = self.planner._build_message(state)
-        self.assertIn("History:", msg)
-        self.assertIn("Observation:", msg)
-        self.assertIn("get_system_info", msg)
+        messages = self.planner._build_messages(state, "System Prompt")
+        
+        # 1 system + 1 user + 1 assistant tool call + 1 tool response = 4 messages
+        self.assertEqual(len(messages), 4)
+        self.assertEqual(messages[2]["role"], "assistant")
+        self.assertEqual(messages[2]["tool_calls"][0]["function"]["name"], "get_system_info")
+        self.assertEqual(messages[3]["role"], "tool")
+        self.assertEqual(messages[3]["content"], "RAM: 8GB/16GB")
 
     def test_history_capped_at_max(self):
-        """Chỉ gửi _MAX_HISTORY bước gần nhất."""
+        """Chỉ gửi _MAX_HISTORY bước gần nhất trong history."""
         steps = [
             {
                 "action": {"type": "tool", "tool": f"tool_{i}", "args": {}},
@@ -101,22 +47,32 @@ class TestPlannerBuildMessage(unittest.TestCase):
             for i in range(10)
         ]
         state = AgentState(goal="test", history=steps, step_count=10)
-        msg = self.planner._build_message(state)
-        first_included = len(steps) - _MAX_HISTORY
-        for i in range(first_included, len(steps)):
-            self.assertIn(f"tool_{i}", msg)
-        self.assertNotIn(f"tool_{first_included - 1}", msg)
+        messages = self.planner._build_messages(state, "System Prompt")
+        
+        # Capped at _MAX_HISTORY (5)
+        # Mỗi bước lịch sử gồm 2 messages (assistant + tool)
+        # 1 system + 1 user + 5 * 2 = 12 messages
+        self.assertEqual(len(messages), 12)
+        
+        # Kiểm tra xem bước cũ nhất trong context là bước thứ 5 (index 5)
+        self.assertEqual(messages[2]["tool_calls"][0]["function"]["name"], "tool_5")
 
 
 class TestPlannerPlanStep(unittest.TestCase):
-    """Kiểm tra plan_step() gọi LLM đúng cách."""
+    """Kiểm tra plan_step() xử lý kết quả trả về từ LLM đúng cách."""
 
     @patch("agent.planner.get_planner_llm")
     def test_plan_step_returns_tool_action(self, mock_get_llm):
         mock_client = MagicMock()
-        mock_client.generate.return_value = (
-            '{"type": "tool", "tool": "get_system_info", "args": {}}'
-        )
+        mock_client.chat_with_tools.return_value = {
+            "content": "",
+            "tool_calls": [{
+                "function": {
+                    "name": "get_system_info",
+                    "arguments": {}
+                }
+            }]
+        }
         mock_get_llm.return_value = mock_client
 
         planner = Planner()
@@ -125,37 +81,50 @@ class TestPlannerPlanStep(unittest.TestCase):
 
         self.assertEqual(result["type"], "tool")
         self.assertEqual(result["tool"], "get_system_info")
-        mock_client.generate.assert_called_once()
-        kwargs = mock_client.generate.call_args.kwargs
-        self.assertTrue(kwargs.get("json_mode"))
+        self.assertEqual(result["args"], {})
 
     @patch("agent.planner.get_planner_llm")
-    def test_plan_step_returns_finish_on_parse_error(self, mock_get_llm):
-        """Nếu LLM trả JSON sai, plan_step() trả finish fallback."""
+    def test_plan_step_returns_finish_action(self, mock_get_llm):
         mock_client = MagicMock()
-        mock_client.generate.return_value = "this is not json"
+        mock_client.chat_with_tools.return_value = {
+            "content": "RAM của bạn còn 7.2 GB trống.",
+            "tool_calls": []
+        }
         mock_get_llm.return_value = mock_client
 
         planner = Planner()
-        state = AgentState(goal="test")
+        state = AgentState(goal="RAM còn bao nhiêu?")
         result = planner.plan_step(state)
 
         self.assertEqual(result["type"], "finish")
+        self.assertEqual(result["answer"], "RAM của bạn còn 7.2 GB trống.")
 
     @patch("agent.planner.get_planner_llm")
-    def test_plan_step_uses_json_mode(self, mock_get_llm):
-        mock_client = MagicMock()
-        mock_client.generate.return_value = (
-            '{"type": "finish", "answer": "Xin chào!"}'
-        )
-        mock_get_llm.return_value = mock_client
-
+    def test_stuck_detection(self, mock_get_llm):
+        """Nếu phát hiện lặp lại bước cũ, tự động dừng (stuck)."""
         planner = Planner()
-        state = AgentState(goal="Xin chào")
-        planner.plan_step(state)
-
-        kwargs = mock_client.generate.call_args.kwargs
-        self.assertTrue(kwargs.get("json_mode"))
+        
+        # 2 bước gần nhất gọi cùng tool và cùng args
+        state = AgentState(
+            goal="test",
+            history=[
+                {
+                    "action": {"type": "tool", "tool": "open_app", "args": {"app_name": "chrome"}},
+                    "observation": "FAILED: App not found",
+                },
+                {
+                    "action": {"type": "tool", "tool": "open_app", "args": {"app_name": "chrome"}},
+                    "observation": "FAILED: App not found",
+                }
+            ],
+            step_count=2
+        )
+        
+        result = planner.plan_step(state)
+        self.assertEqual(result["type"], "finish")
+        self.assertIn("xu ly yeu cau", result["answer"])
+        # Không được gọi LLM khi bị stuck
+        mock_get_llm.assert_not_called()
 
 
 if __name__ == "__main__":

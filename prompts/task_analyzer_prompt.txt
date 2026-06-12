@@ -42,4 +42,7 @@ Output: {"goal": "Chụp màn hình và thông báo", "tasks": [{"task": "Chụp
 Input: "mở Chrome rồi cho tôi biết tab hiện tại đang ở trang nào"
 Output: {"goal": "Lấy thông tin tab Chrome hiện tại", "tasks": [{"task": "Mở Chrome", "type": "action", "hint": "Use open_app tool", "requires": [], "expected_output": "", "status": "pending"}, {"task": "Lấy thông tin cửa sổ đang active", "type": "read", "hint": "Use get_active_window tool", "requires": [], "expected_output": "window title and url", "status": "pending"}]}
 
+Input: "sao chép file data.txt sang thư mục backup và nén nó lại"
+Output: {"goal": "Sao chép và nén file data.txt", "tasks": [{"task": "Sao chép file data.txt", "type": "action", "hint": "Use manage_file_folder tool with action copy", "requires": [], "expected_output": "dest_path", "status": "pending"}, {"task": "Nén file đã sao chép", "type": "action", "hint": "Use compress_decompress tool with action zip", "requires": ["dest_path"], "expected_output": "zip_path", "status": "pending"}]}
+
 Input: "{user_input}"
